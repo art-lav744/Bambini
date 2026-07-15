@@ -80,6 +80,36 @@ def get_user_or_404(user_id: int, session: Session) -> User:
     return user
 
 
+EVENT_VISIBILITIES = {"public", "friends", "private"}
+
+
+def normalize_event_visibility(value: str) -> str:
+    visibility = (value or "").strip().lower()
+    if visibility not in EVENT_VISIBILITIES:
+        raise HTTPException(
+            status_code=422,
+            detail="visibility must be one of: public, friends, private",
+        )
+    return visibility
+
+
+def are_users_friends(user_id: int, other_user_id: int, session: Session) -> bool:
+    if user_id == other_user_id:
+        return True
+    friendship = session.exec(
+        select(Friendship).where(
+            (Friendship.status == "accepted")
+            & or_(
+                (Friendship.requester_id == user_id)
+                & (Friendship.addressee_id == other_user_id),
+                (Friendship.requester_id == other_user_id)
+                & (Friendship.addressee_id == user_id),
+            )
+        )
+    ).first()
+    return friendship is not None
+
+
 def normalized_utc(value):
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
@@ -599,7 +629,10 @@ def list_friend_activities(user_id: int, session: Session = Depends(get_session)
 
     activities = session.exec(
         select(Activity)
-        .where((Activity.id.in_(activity_ids)) & (Activity.is_public == True))
+        .where(
+            (Activity.id.in_(activity_ids))
+            & (Activity.visibility.in_(["public", "friends"]))
+        )
         .order_by(Activity.created_at.desc())
     ).all()
     return [activity_to_read(activity, session) for activity in activities]
@@ -615,7 +648,9 @@ def activity_to_read(activity: Activity, session: Session) -> ActivityRead:
         title=activity.title,
         description=activity.description,
         code=activity.code,
-        is_public=activity.is_public,
+        visibility=activity.visibility,
+        image_url=activity.image_url,
+        start_time=activity.start_time,
         created_at=activity.created_at,
         host_user_id=owner.user_id if owner else None,
         latitude=location.latitude if location else None,
@@ -649,7 +684,9 @@ def create_activity(data: ActivityCreate, session: Session = Depends(get_session
     activity = Activity(
         title=data.title.strip(),
         description=data.description.strip(),
-        is_public=data.is_public,
+        visibility=normalize_event_visibility(data.visibility),
+        image_url=(data.image_url or "").strip() or None,
+        start_time=data.start_time,
         code=generate_unique_code(
             session,
             Activity,
@@ -679,7 +716,7 @@ def create_activity(data: ActivityCreate, session: Session = Depends(get_session
 def list_public_activities(session: Session = Depends(get_session)):
     activities = session.exec(
         select(Activity)
-        .where(Activity.is_public == True)
+        .where(Activity.visibility == "public")
         .order_by(Activity.created_at.desc())
     ).all()
     return [activity_to_read(activity, session) for activity in activities]
@@ -702,6 +739,19 @@ def join_activity(
 ):
     activity = get_activity_or_404(code, session)
     get_user_or_404(data.user_id, session)
+
+    owner = session.get(EventOwner, activity.id)
+    if (
+        activity.visibility == "friends"
+        and owner is not None
+        and owner.user_id != data.user_id
+        and not are_users_friends(data.user_id, owner.user_id, session)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Ця подія доступна лише друзям організатора",
+        )
+
     ensure_event_member(activity.id, data.user_id, session)
     return activity_to_read(activity, session)
 

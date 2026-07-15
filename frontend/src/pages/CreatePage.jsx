@@ -3,11 +3,18 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import EventLocationPicker from "../components/EventLocationPicker.jsx";
 import { ensureCurrentUser } from "../userSession.js";
+import { defaultEventStartTime } from "../eventFormat.js";
 
 export default function CreatePage() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
-  const [form, setForm] = useState({ title: "", description: "", is_public: true });
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    visibility: "public",
+    image_url: "",
+    start_time: defaultEventStartTime(),
+  });
   const [location, setLocation] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -82,24 +89,64 @@ export default function CreatePage() {
             />
           </label>
 
+          <label>
+            Час початку
+            <input
+              type="datetime-local"
+              name="start_time"
+              value={form.start_time}
+              onChange={updateField}
+              required
+            />
+          </label>
+
+          <label>
+            Фото події
+            <input
+              name="image_url"
+              value={form.image_url}
+              onChange={updateField}
+              placeholder="https://..."
+              inputMode="url"
+            />
+          </label>
+
+          {form.image_url && (
+            <div className="event-image-preview">
+              <img
+                src={form.image_url}
+                alt="Попередній перегляд події"
+                onError={(event) => { event.currentTarget.style.display = "none"; }}
+              />
+            </div>
+          )}
+
           <fieldset className="event-privacy-field">
             <legend>Доступ до події</legend>
             <div className="event-privacy-options">
               <button
                 type="button"
-                className={`event-privacy-option${form.is_public ? " is-active" : ""}`}
-                onClick={() => setForm((current) => ({ ...current, is_public: true }))}
+                className={`event-privacy-option${form.visibility === "public" ? " is-active" : ""}`}
+                onClick={() => setForm((current) => ({ ...current, visibility: "public" }))}
               >
                 <strong>Публічна</strong>
-                <span>Видима у списку публічних подій. Приєднатися може будь-який користувач.</span>
+                <span>Видима всім користувачам. Приєднатися може будь-хто.</span>
               </button>
               <button
                 type="button"
-                className={`event-privacy-option${!form.is_public ? " is-active" : ""}`}
-                onClick={() => setForm((current) => ({ ...current, is_public: false }))}
+                className={`event-privacy-option${form.visibility === "friends" ? " is-active" : ""}`}
+                onClick={() => setForm((current) => ({ ...current, visibility: "friends" }))}
+              >
+                <strong>Лише друзі</strong>
+                <span>Видима друзям організатора. Приєднатися можуть лише друзі.</span>
+              </button>
+              <button
+                type="button"
+                className={`event-privacy-option${form.visibility === "private" ? " is-active" : ""}`}
+                onClick={() => setForm((current) => ({ ...current, visibility: "private" }))}
               >
                 <strong>Приватна</strong>
-                <span>Не показується у публічному списку. Приєднання лише за кодом.</span>
+                <span>Не показується у списках. Приєднання лише за кодом.</span>
               </button>
             </div>
           </fieldset>

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import { ensureCurrentUser } from "../userSession.js";
+import { formatEventDateTime } from "../eventFormat.js";
 
 const FILTERS = [
   { value: "mine", label: "Мої" },
@@ -130,12 +131,29 @@ export default function EventsPage() {
                 const isHost = event.host_user_id === user?.id;
                 return (
                   <article className="event-list-card public-event-card" key={event.id}>
-                    <span className="event-list-card__pin">●</span>
+                    <div className="event-list-card__media">
+                      {event.image_url ? (
+                        <img src={event.image_url} alt="" />
+                      ) : (
+                        <span className="event-list-card__pin">●</span>
+                      )}
+                    </div>
                     <Link className="event-list-card__content" to={`/room/${event.code}`}>
-                      <strong>{event.title}</strong>
+                      <div className="event-list-card__topline">
+                        <strong>{event.title}</strong>
+                        <time>{formatEventDateTime(event.start_time)}</time>
+                      </div>
                       <span>{event.description || `Код ${event.code}`}</span>
                       <small>
-                        {isHost ? "Організатор" : joined ? "Учасник" : event.is_public ? "Публічна" : "Приватна"}
+                        {isHost
+                          ? "Організатор"
+                          : joined
+                            ? "Учасник"
+                            : event.visibility === "friends"
+                              ? "Лише друзі"
+                              : event.visibility === "private"
+                                ? "Приватна"
+                                : "Публічна"}
                       </small>
                     </Link>
                     {joined ? (
@@ -168,7 +186,7 @@ export default function EventsPage() {
               {filter === "mine"
                 ? "У вас ще немає подій."
                 : filter === "friends"
-                  ? "У друзів немає публічних подій."
+                  ? "У друзів немає доступних подій."
                   : "Публічних подій поки немає."}
             </div>
           )}

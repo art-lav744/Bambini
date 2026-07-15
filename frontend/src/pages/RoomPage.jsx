@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import MapLibreMap from "../components/MapLibreMap.jsx";
 import { ensureCurrentUser } from "../userSession.js";
+import { formatEventDateTime } from "../eventFormat.js";
 
 export default function RoomPage() {
   const { code } = useParams();
@@ -84,6 +85,12 @@ export default function RoomPage() {
       {panelOpen && (
         <aside className="room-sheet event-room-sheet">
           <div className="room-sheet__handle" />
+          {activity.image_url && (
+            <div className="event-room-sheet__image">
+              <img src={activity.image_url} alt="" />
+            </div>
+          )}
+          <div className="event-room-sheet__time">{formatEventDateTime(activity.start_time)}</div>
           <div className="room-sheet__meta">
             <div>
               <span className="eyebrow">Учасники</span>
@@ -94,7 +101,13 @@ export default function RoomPage() {
               <strong>1</strong>
             </div>
             {isHost && <span className="badge">Організатор</span>}
-            <span className="badge">{activity.is_public ? "Public" : "Private"}</span>
+            <span className="badge">
+              {activity.visibility === "friends"
+                ? "Лише друзі"
+                : activity.visibility === "private"
+                  ? "Приватна"
+                  : "Публічна"}
+            </span>
           </div>
 
           {activity.description && <p className="room-sheet__hint">{activity.description}</p>}

@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import MapLibreMap from "../components/MapLibreMap.jsx";
 import { ensureCurrentUser } from "../userSession.js";
+import { formatEventDateTime } from "../eventFormat.js";
 
 export default function RoomPage() {
   const { code } = useParams();
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [activity, setActivity] = useState(null);
   const [participants, setParticipants] = useState([]);
   const [error, setError] = useState("");
   const [panelOpen, setPanelOpen] = useState(true);
+  const [leaving, setLeaving] = useState(false);
 
   const loadRoom = useCallback(async () => {
     try {
@@ -35,6 +38,22 @@ export default function RoomPage() {
   }, [loadRoom]);
 
   const isHost = Boolean(user && activity && activity.host_user_id === user.id);
+  const isParticipant = Boolean(user && participants.some((participant) => participant.user_id === user.id));
+
+  async function leaveEvent() {
+    if (!user || !activity || isHost || !isParticipant || leaving) return;
+    if (!window.confirm(`Від’єднатися від події «${activity.title}»?`)) return;
+
+    setLeaving(true);
+    setError("");
+    try {
+      await api.leaveActivity(activity.code, user.id);
+      navigate("/events", { replace: true });
+    } catch (err) {
+      setError(err.message);
+      setLeaving(false);
+    }
+  }
 
   if (error && !activity) {
     return <main className="form-page"><p className="error">{error}</p></main>;
@@ -66,6 +85,12 @@ export default function RoomPage() {
       {panelOpen && (
         <aside className="room-sheet event-room-sheet">
           <div className="room-sheet__handle" />
+          {activity.image_url && (
+            <div className="event-room-sheet__image">
+              <img src={activity.image_url} alt="" />
+            </div>
+          )}
+          <div className="event-room-sheet__time">{formatEventDateTime(activity.start_time)}</div>
           <div className="room-sheet__meta">
             <div>
               <span className="eyebrow">Учасники</span>
@@ -76,7 +101,13 @@ export default function RoomPage() {
               <strong>1</strong>
             </div>
             {isHost && <span className="badge">Організатор</span>}
-            <span className="badge">{activity.is_public ? "Public" : "Private"}</span>
+            <span className="badge">
+              {activity.visibility === "friends"
+                ? "Лише друзі"
+                : activity.visibility === "private"
+                  ? "Приватна"
+                  : "Публічна"}
+            </span>
           </div>
 
           {activity.description && <p className="room-sheet__hint">{activity.description}</p>}
@@ -89,6 +120,17 @@ export default function RoomPage() {
               </span>
             ))}
           </div>
+
+          {!isHost && isParticipant && (
+            <button
+              className="button danger-button"
+              type="button"
+              onClick={leaveEvent}
+              disabled={leaving}
+            >
+              {leaving ? "Від’єднання..." : "Від’єднатися від події"}
+            </button>
+          )}
 
           {error && <p className="error">{error}</p>}
         </aside>

@@ -2,11 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
-import {
-  connectExistingUser,
-  ensureCurrentUser,
-  saveCurrentUser,
-} from "../userSession.js";
+import { ensureCurrentUser, saveCurrentUser } from "../userSession.js";
 
 function initials(name = "?") {
   return name.trim().slice(0, 2).toUpperCase();
@@ -39,10 +35,8 @@ export default function ProfilePage() {
   const [user, setUser] = useState(null);
   const [name, setName] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
-  const [connectCode, setConnectCode] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [connecting, setConnecting] = useState(false);
   const [savingVisibility, setSavingVisibility] = useState(false);
   const navigate = useNavigate();
 
@@ -77,22 +71,6 @@ export default function ProfilePage() {
     }
   }
 
-  async function connectProfile(event) {
-    event.preventDefault();
-    setError("");
-    setMessage("");
-    setConnecting(true);
-    try {
-      const connected = await connectExistingUser(connectCode);
-      applyProfile(connected);
-      setConnectCode("");
-      setMessage("Цей пристрій підключено до існуючого профілю");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setConnecting(false);
-    }
-  }
 
   async function changeLocationVisibility(visibility) {
     if (!user || savingVisibility || visibility === currentVisibility(user)) return;
@@ -123,7 +101,6 @@ export default function ProfilePage() {
 
   function handleSignOut() {
     localStorage.removeItem("outdoor_user_id");
-    localStorage.removeItem("outdoor_profile_code");
     localStorage.removeItem("player_name");
     navigate("/login", { replace: true });
   }
@@ -159,15 +136,6 @@ export default function ProfilePage() {
               <small>Його можна безпечно дати друзям</small>
             </button>
 
-            <button
-              className="friend-code-card profile-sync-card"
-              type="button"
-              onClick={() => copyValue(user.profile_code, `Код профілю: ${user.profile_code}`)}
-            >
-              <span>Секретний код профілю</span>
-              <strong>{user.profile_code}</strong>
-              <small>Введіть його на іншому пристрої. Не передавайте стороннім.</small>
-            </button>
 
             <section className="settings-card location-visibility-card">
               <div className="location-visibility-card__heading">
@@ -216,26 +184,6 @@ export default function ProfilePage() {
               <button className="button primary" type="submit">Зберегти профіль</button>
             </form>
 
-            <section className="profile-connect-card">
-              <div className="eyebrow">Інший пристрій</div>
-              <h2>Відкрити існуючий профіль</h2>
-              <p className="muted">
-                Введіть секретний код профілю з іншого телефона або комп’ютера.
-              </p>
-              <form className="friend-add-form" onSubmit={connectProfile}>
-                <input
-                  value={connectCode}
-                  onChange={(event) => setConnectCode(event.target.value.toUpperCase())}
-                  placeholder="Секретний код профілю"
-                  minLength="12"
-                  maxLength="16"
-                  required
-                />
-                <button className="button primary" type="submit" disabled={connecting}>
-                  {connecting ? "Підключення..." : "Підключити"}
-                </button>
-              </form>
-            </section>
 
             <div style={{ marginTop: 64, marginBottom: 18 }}>
               <button className="button secondary" type="button" onClick={handleSignOut} style={{ width: "100%", minHeight: 48 }}>

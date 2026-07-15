@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 
 const DEFAULT_CENTER = [24.7111, 48.9226];
 const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
-const MAP_VIEW_STORAGE_KEY = "bambini:map:view:v1";
+const MAP_VIEW_STORAGE_KEY = "bambini:map:view:v2";
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 21;
 const DEFAULT_ZOOM = 13;
+const MARKER_COLLISION_DISTANCE = 62;
 
 function loadSavedMapView() {
   try {
@@ -25,7 +28,7 @@ function loadSavedMapView() {
 
     return {
       center: [longitude, latitude],
-      zoom: Math.min(22, Math.max(0, zoom)),
+      zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)),
       bearing: Number.isFinite(bearing) ? bearing : 0,
       pitch: Number.isFinite(pitch) ? Math.min(70, Math.max(0, pitch)) : 0,
     };
@@ -206,26 +209,147 @@ function initials(name = "?") {
   return name.trim().slice(0, 2).toUpperCase() || "?";
 }
 
+function formatEventDateTime(value) {
+  if (!value) return "Час не вказано";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Час не вказано";
+  return new Intl.DateTimeFormat("uk-UA", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+
+function eventVisibilityLabel(visibility) {
+  if (visibility === "friends") return "Лише друзі";
+  if (visibility === "private") return "Приватна";
+  return "Публічна";
+}
+
+function markerScaleForZoom(zoom) {
+  if (zoom <= MIN_ZOOM) return 0.62;
+  if (zoom >= 14) return 1;
+  return 0.62 + ((zoom - MIN_ZOOM) / (14 - MIN_ZOOM)) * 0.38;
+}
+
+function applyMarkerVisualScale(entries, zoom) {
+  const scale = markerScaleForZoom(zoom);
+  for (const entry of entries) {
+    entry.element?.style.setProperty("--map-marker-scale", scale.toFixed(3));
+  }
+}
+
+function declutterMarkers(map, entries) {
+  if (!map || entries.length < 2) {
+    entries.forEach((entry) => entry.marker.setOffset([0, 0]));
+    return;
+  }
+
+  entries.forEach((entry) => entry.marker.setOffset([0, 0]));
+
+  const projected = entries
+    .map((entry) => ({
+      ...entry,
+      point: map.project(entry.marker.getLngLat()),
+    }))
+    .sort((a, b) => {
+      const priorityA = a.isCurrent ? 0 : a.kind === "user" ? 1 : 2;
+      const priorityB = b.isCurrent ? 0 : b.kind === "user" ? 1 : 2;
+      return priorityA - priorityB;
+    });
+
+  const groups = [];
+  for (const item of projected) {
+    let target = null;
+    for (const group of groups) {
+      const dx = item.point.x - group.center.x;
+      const dy = item.point.y - group.center.y;
+      if (Math.hypot(dx, dy) < MARKER_COLLISION_DISTANCE) {
+        target = group;
+        break;
+      }
+    }
+
+    if (!target) {
+      groups.push({ center: item.point, items: [item] });
+      continue;
+    }
+
+    target.items.push(item);
+    const count = target.items.length;
+    target.center = {
+      x: target.items.reduce((sum, current) => sum + current.point.x, 0) / count,
+      y: target.items.reduce((sum, current) => sum + current.point.y, 0) / count,
+    };
+  }
+
+  for (const group of groups) {
+    if (group.items.length < 2) continue;
+
+    const currentIndex = group.items.findIndex((item) => item.isCurrent);
+    const centered = currentIndex >= 0
+      ? group.items.splice(currentIndex, 1)[0]
+      : group.items.shift();
+
+    centered.marker.setOffset([0, 0]);
+
+    const count = group.items.length;
+    const radius = Math.min(56, 28 + count * 6);
+    group.items.forEach((item, index) => {
+      const angle = -Math.PI / 2 + (Math.PI * 2 * index) / Math.max(count, 1);
+      item.marker.setOffset([
+        Math.round(Math.cos(angle) * radius),
+        Math.round(Math.sin(angle) * radius),
+      ]);
+    });
+  }
+}
+
+function eventImageHtml(event) {
+  if (!event.image_url) return "";
+  return `<div class="map-selection-card__media"><img src="${escapeHtml(event.image_url)}" alt=""></div>`;
+}
+
 
 function createEventMarker(event) {
   const element = document.createElement("button");
   element.type = "button";
   element.className = "event-map-marker";
   element.setAttribute("aria-label", event.title);
-  element.innerHTML = `<span class="event-map-marker__dot"></span>`;
+  element.innerHTML = event.image_url
+    ? `<span class="event-map-marker__visual"><span class="event-map-marker__image"><img src="${escapeHtml(event.image_url)}" alt=""></span></span>`
+    : `<span class="event-map-marker__visual"><span class="event-map-marker__dot"></span></span>`;
 
-  const popup = new maplibregl.Popup({ offset: 22 }).setHTML(
-    `<div class="map-popup"><strong>${escapeHtml(event.title)}</strong><p>${escapeHtml(
-      event.description || `Код: ${event.code}`
-    )}</p><small>${event.is_public ? "Public" : "Private"}</small><br><a class="map-popup__link" href="/room/${event.code}">Відкрити подію</a></div>`
+  const popup = new maplibregl.Popup({
+    offset: 24,
+    maxWidth: "340px",
+    className: "bambini-map-popup",
+  }).setHTML(
+    `<article class="map-selection-card map-selection-card--event">
+      ${eventImageHtml(event)}
+      <div class="map-selection-card__body">
+        <div class="map-selection-card__badges">
+          <span>${escapeHtml(eventVisibilityLabel(event.visibility))}</span>
+          <span>${escapeHtml(formatEventDateTime(event.start_time))}</span>
+        </div>
+        <h3>${escapeHtml(event.title)}</h3>
+        <p>${escapeHtml(event.description || "Без опису")}</p>
+        <a class="map-selection-card__action" href="/room/${event.code}">Відкрити подію <span>→</span></a>
+      </div>
+    </article>`
   );
 
   const lngLat = normalizeLngLat(event);
   if (!lngLat) return null;
 
-  return new maplibregl.Marker({ element, anchor: "center" })
+  const marker = new maplibregl.Marker({ element, anchor: "center" })
     .setLngLat(lngLat)
     .setPopup(popup);
+
+  return { marker, element, kind: "event", isCurrent: false };
 }
 
 function createCheckpointMarker(checkpoint) {
@@ -286,7 +410,10 @@ function createUserMarkerElement(user, isCurrent) {
   label.className = "map-user-marker__label";
   label.textContent = isCurrent ? "Ви" : user.name;
 
-  element.append(pulseOne, pulseTwo, avatar, label);
+  const visual = document.createElement("span");
+  visual.className = "map-user-marker__visual";
+  visual.append(pulseOne, pulseTwo, avatar, label);
+  element.appendChild(visual);
   return element;
 }
 
@@ -312,8 +439,32 @@ export default function MapLibreMap({
   const eventMarkersRef = useRef([]);
   const selectionMarkerRef = useRef(null);
   const userMarkersRef = useRef(new Map());
+  const layoutFrameRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const [locationError, setLocationError] = useState("");
+
+  const layoutMarkers = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const entries = [
+      ...eventMarkersRef.current,
+      ...Array.from(userMarkersRef.current.values()),
+    ];
+
+    applyMarkerVisualScale(entries, map.getZoom());
+    declutterMarkers(map, entries);
+  }, []);
+
+  const scheduleMarkerLayout = useCallback(() => {
+    if (layoutFrameRef.current !== null) {
+      cancelAnimationFrame(layoutFrameRef.current);
+    }
+    layoutFrameRef.current = requestAnimationFrame(() => {
+      layoutFrameRef.current = null;
+      layoutMarkers();
+    });
+  }, [layoutMarkers]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return undefined;
@@ -333,6 +484,8 @@ export default function MapLibreMap({
       bearing: savedView?.bearing ?? 0,
       pitch: savedView?.pitch ?? 0,
       attributionControl: true,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
       maxPitch: 70,
     });
 
@@ -351,6 +504,8 @@ export default function MapLibreMap({
     map.on("moveend", persistView);
     map.on("rotateend", persistView);
     map.on("pitchend", persistView);
+    map.on("zoom", scheduleMarkerLayout);
+    map.on("move", scheduleMarkerLayout);
 
     const resizeObserver = new ResizeObserver(() => map.resize());
     resizeObserver.observe(containerRef.current);
@@ -358,7 +513,7 @@ export default function MapLibreMap({
     mapRef.current = map;
     return () => {
       checkpointMarkersRef.current.forEach((marker) => marker.remove());
-      eventMarkersRef.current.forEach((marker) => marker.remove());
+      eventMarkersRef.current.forEach((entry) => entry.marker.remove());
       userMarkersRef.current.forEach((entry) => entry.marker.remove());
       userMarkersRef.current.clear();
       selectionMarkerRef.current?.remove();
@@ -367,10 +522,16 @@ export default function MapLibreMap({
       map.off("moveend", persistView);
       map.off("rotateend", persistView);
       map.off("pitchend", persistView);
+      map.off("zoom", scheduleMarkerLayout);
+      map.off("move", scheduleMarkerLayout);
+      if (layoutFrameRef.current !== null) {
+        cancelAnimationFrame(layoutFrameRef.current);
+        layoutFrameRef.current = null;
+      }
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [scheduleMarkerLayout]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -452,16 +613,28 @@ export default function MapLibreMap({
       if (!entry || entry.signature !== signature) {
         entry?.marker.remove();
         const element = createUserMarkerElement(item.user, item.isCurrent);
-        const popup = new maplibregl.Popup({ offset: 28 }).setHTML(
-          `<div class="map-popup"><strong>${escapeHtml(
-            item.isCurrent ? "Ви" : item.user.name
-          )}</strong><p>${
-            item.isCurrent
-              ? "Ваша поточна позиція"
-              : item.user.presence === "online"
-              ? "На карті зараз"
-              : `Оновлено ${item.user.age_seconds || 0} с тому`
-          }</p></div>`
+        const displayName = item.isCurrent ? "Ви" : item.user.name;
+        const statusText = item.isCurrent
+          ? "Ваша поточна позиція"
+          : item.user.presence === "online"
+            ? "На карті зараз"
+            : `Оновлено ${item.user.age_seconds || 0} с тому`;
+        const avatarHtml = item.user.photo_url
+          ? `<img src="${escapeHtml(item.user.photo_url)}" alt="">`
+          : `<span>${escapeHtml(initials(item.user.name))}</span>`;
+        const popup = new maplibregl.Popup({
+          offset: 34,
+          maxWidth: "320px",
+          className: "bambini-map-popup",
+        }).setHTML(
+          `<article class="map-selection-card map-selection-card--person">
+            <div class="map-person-card__avatar">${avatarHtml}</div>
+            <div class="map-person-card__content">
+              <div class="map-person-card__status"><span class="is-${escapeHtml(item.user.presence || "online")}"></span>${escapeHtml(statusText)}</div>
+              <h3>${escapeHtml(displayName)}</h3>
+              <p>${item.isCurrent ? "Це ви на карті" : "Користувач ділиться своєю актуальною геолокацією"}</p>
+            </div>
+          </article>`
         );
         const lngLat = normalizeLngLat(item.user);
         if (!lngLat) continue;
@@ -470,14 +643,22 @@ export default function MapLibreMap({
           .setLngLat(lngLat)
           .setPopup(popup)
           .addTo(map);
-        entry = { marker, signature };
+        entry = {
+          marker,
+          element,
+          signature,
+          kind: "user",
+          isCurrent: item.isCurrent,
+        };
         userMarkersRef.current.set(item.key, entry);
       } else {
         const lngLat = normalizeLngLat(item.user);
         if (lngLat) entry.marker.setLngLat(lngLat);
       }
     }
-  }, [currentLocation, currentUser, friendLocations, mapReady]);
+
+    scheduleMarkerLayout();
+  }, [currentLocation, currentUser, friendLocations, mapReady, scheduleMarkerLayout]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -533,7 +714,7 @@ export default function MapLibreMap({
     if (currentLngLat) {
       map.flyTo({
         center: currentLngLat,
-        zoom: Math.max(map.getZoom(), 15),
+        zoom: Math.min(MAX_ZOOM, Math.max(map.getZoom(), 15)),
         duration: 900,
       });
       return;
@@ -558,7 +739,7 @@ export default function MapLibreMap({
           updated_at: new Date().toISOString(),
         };
         onLocationFound?.(location, true);
-        map.flyTo({ center: [location.longitude, location.latitude], zoom: 15, duration: 900 });
+        map.flyTo({ center: [location.longitude, location.latitude], zoom: Math.min(MAX_ZOOM, 15), duration: 900 });
       },
       () => setLocationError("Не вдалося отримати геолокацію. Перевірте дозвіл браузера."),
       { enableHighAccuracy: true, timeout: 10000 }

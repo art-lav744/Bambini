@@ -650,6 +650,9 @@ def activity_to_read(activity: Activity, session: Session) -> ActivityRead:
         code=activity.code,
         visibility=activity.visibility,
         image_url=activity.image_url,
+        capacity=activity.capacity,
+        pin_type=activity.pin_type,
+        participant_count=len(session.exec(select(EventMember).where(EventMember.activity_id == activity.id)).all()),
         start_time=activity.start_time,
         created_at=activity.created_at,
         host_user_id=owner.user_id if owner else None,
@@ -686,6 +689,8 @@ def create_activity(data: ActivityCreate, session: Session = Depends(get_session
         description=data.description.strip(),
         visibility=normalize_event_visibility(data.visibility),
         image_url=(data.image_url or "").strip() or None,
+        capacity=data.capacity,
+        pin_type=data.pin_type if data.pin_type in {"default", "football", "basketball", "volleyball", "tennis", "pingpong", "ticket", "eightball", "beer", "popcorn"} else "default",
         start_time=data.start_time,
         code=generate_unique_code(
             session,
@@ -751,6 +756,18 @@ def join_activity(
             status_code=403,
             detail="Ця подія доступна лише друзям організатора",
         )
+
+    existing_member = session.exec(
+        select(EventMember).where(
+            (EventMember.activity_id == activity.id) & (EventMember.user_id == data.user_id)
+        )
+    ).first()
+    if existing_member is None and activity.capacity is not None:
+        member_count = len(
+            session.exec(select(EventMember).where(EventMember.activity_id == activity.id)).all()
+        )
+        if member_count >= activity.capacity:
+            raise HTTPException(status_code=409, detail="У події вже немає вільних місць")
 
     ensure_event_member(activity.id, data.user_id, session)
     return activity_to_read(activity, session)

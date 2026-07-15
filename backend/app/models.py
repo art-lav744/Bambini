@@ -16,7 +16,9 @@ class Activity(ActivityBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     code: str = Field(index=True, unique=True, max_length=6)
     visibility: str = Field(default="public", max_length=20)
-    image_url: str | None = Field(default=None, max_length=1000)
+    image_url: str | None = Field(default=None, max_length=3000000)
+    capacity: int | None = Field(default=None, ge=1, le=50)
+    pin_type: str = Field(default="default", max_length=30)
     start_time: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
@@ -26,7 +28,9 @@ class ActivityCreate(ActivityBase):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     visibility: str = Field(default="public", min_length=6, max_length=20)
-    image_url: str | None = Field(default=None, max_length=1000)
+    image_url: str | None = Field(default=None, max_length=3000000)
+    capacity: int | None = Field(default=None, ge=1, le=50)
+    pin_type: str = Field(default="default", max_length=30)
     start_time: datetime
 
 
@@ -39,6 +43,9 @@ class ActivityRead(ActivityBase):
     code: str
     visibility: str
     image_url: str | None
+    capacity: int | None
+    pin_type: str
+    participant_count: int = 0
     start_time: datetime | None
     created_at: datetime
     host_user_id: int | None = None

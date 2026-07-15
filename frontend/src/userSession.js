@@ -24,7 +24,7 @@ function decodeJwtPayload(credential) {
 export function saveCurrentUser(user) {
   if (!user?.id) return;
   localStorage.setItem(USER_ID_KEY, String(user.id));
-  localStorage.setItem("player_name", user.name || "User");
+  localStorage.setItem("player_name", user.name || "Користувач");
 }
 
 export async function ensureCurrentUser() {
@@ -65,7 +65,7 @@ export async function loginWithEmail({ email, password }) {
 export async function loginWithGoogle(credential) {
   const payload = decodeJwtPayload(credential);
   const email = (payload?.email || "").trim().toLowerCase();
-  const name = payload?.name || payload?.given_name || "Google user";
+  const name = payload?.name || payload?.given_name || "Користувач Google";
 
   if (!email) {
     throw new Error("Google не повернув email користувача");

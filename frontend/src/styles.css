@@ -65,6 +65,44 @@
   --color-rgb-8-10-12-a0p9: rgba(8,10,12,.9);
 --color-rgb-238-242-244-a0p7: rgba(238,242,244,.7);
 --color-hex-545b61: #545b61;
+  --color-white-a0p03: rgba(255,255,255,.03);
+  --color-marker-neutral-highlight: #f4f6f7;
+  --color-marker-neutral-base: #b7bec4;
+  --color-marker-neutral-shadow: #697178;
+  --color-football-base: #f5f4eb;
+  --color-football-panel: #1a1e22;
+  --color-basketball-highlight: #ffc069;
+  --color-basketball-base: #ef7929;
+  --color-basketball-shadow: #b83b16;
+  --color-basketball-seam: #3d1c13;
+  --color-volleyball-highlight: #fff38a;
+  --color-volleyball-base: #ffd21f;
+  --color-volleyball-shadow: #f5ad00;
+  --color-volleyball-seam: #173fba;
+  --color-tennis-highlight: #efff8c;
+  --color-tennis-base: #b7e833;
+  --color-tennis-shadow: #67a51d;
+  --color-pingpong-highlight: hsl(35, 100%, 60%);
+  --color-pingpong-base: #ff964f;
+  --color-pingpong-shadow: #c17e12;
+  --color-ticket-highlight: #ffe7a3;
+  --color-ticket-base: #e9b949;
+  --color-ticket-shadow: #9b641b;
+  --color-ticket-ink: #4a2c12;
+  --color-eightball-highlight: #41464c;
+  --color-eightball-base: #111417;
+  --color-eightball-shadow: #020304;
+  --color-eightball-spot: #f4f1e8;
+  --color-eightball-number: #101214;
+  --color-beer-highlight: #ffd56a;
+  --color-beer-base: #e69b1f;
+  --color-beer-shadow: #9b5c0b;
+  --color-beer-foam: #fff5d6;
+  --color-popcorn-red: #d83b36;
+  --color-popcorn-cream: #fff0c9;
+  --color-popcorn-kernel: #ffe59a;
+  --color-popcorn-kernel-shadow: #d9a83a;
+
 }
 
 :root {
@@ -998,4 +1036,231 @@ a { color: inherit; }
   .map-selection-card--person { width: min(280px, calc(100vw - 24px)); padding: 13px; }
   .event-list-card__media { width: 56px; height: 56px; border-radius: 14px; }
   .event-list-card__topline { display: grid; gap: 3px; }
+}
+
+/* Event capacity, image upload and custom sport pins */
+.event-form-section {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--color-white-a0p08);
+  border-radius: 18px;
+  background: var(--color-white-a0p03);
+}
+.event-form-section__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.event-form-section__heading strong { color: var(--color-hex-f4f6f7); font-size: .9rem; }
+.event-form-section__heading span { color: var(--color-hex-818990); font-size: .72rem; }
+.capacity-toggle { display: flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 10px !important; }
+.capacity-toggle input { width: 18px !important; height: 18px; accent-color: var(--color-hex-f4f6f7); }
+.capacity-control { display: grid; gap: 12px; }
+.capacity-control__value { width: fit-content; padding: 7px 10px; border-radius: 10px; background: var(--color-hex-272c31); color: var(--color-hex-f4f6f7); font-weight: 850; }
+.capacity-control input[type="range"] { padding: 0; accent-color: var(--color-hex-f4f6f7); }
+.event-upload-zone {
+  display: grid !important;
+  place-items: center;
+  gap: 6px !important;
+  min-height: 150px;
+  padding: 22px;
+  border: 1px dashed var(--color-hex-697178);
+  border-radius: 16px;
+  background: var(--color-hex-080a0c);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.event-upload-zone.is-dragging { border-color: var(--color-hex-f4f6f7); background: var(--color-white-a0p08); transform: scale(.995); }
+.event-upload-zone input { position: absolute; width: 1px !important; height: 1px; padding: 0 !important; opacity: 0; pointer-events: none; }
+.event-upload-zone__icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--color-hex-272c31); color: var(--color-hex-f4f6f7); font-size: 1.4rem; }
+.event-upload-zone > span:last-child { color: var(--color-hex-818990); font-size: .76rem; font-weight: 600; }
+.event-image-preview--editable { position: relative; overflow: hidden; border-radius: 16px; }
+.event-image-preview--editable img { width: 100%; max-height: 280px; display: block; object-fit: cover; }
+.event-image-preview--editable button { position: absolute; right: 10px; bottom: 10px; border: 1px solid var(--color-white-a0p12); border-radius: 10px; padding: 8px 10px; background: var(--color-rgb-8-10-12-a0p9); color: var(--color-hex-f4f6f7); font-weight: 800; }
+.event-pin-grid { display: grid; grid-template-columns: repeat(3, minmax(118px, 1fr)); gap: 10px; max-height: 310px; overflow-y: auto; padding: 2px 4px 2px 2px; scrollbar-width: thin; }
+.event-pin-option { display: grid; place-items: center; gap: 8px; min-height: 128px; padding: 12px 8px; border: 1px solid var(--color-hex-272c31); border-radius: 15px; background: var(--color-hex-080a0c); color: var(--color-hex-d8dde1); font: inherit; font-size: .76rem; font-weight: 800; cursor: pointer; }
+.event-pin-option.is-active { border-color: var(--color-hex-f4f6f7); background: var(--color-white-a0p08); box-shadow: inset 0 0 0 1px var(--color-white-a0p12); }
+.sport-pin {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border: 3px solid var(--color-white-a0p85);
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 22%, var(--color-marker-neutral-highlight), var(--color-marker-neutral-base) 55%, var(--color-marker-neutral-shadow));
+  box-shadow: inset -8px -10px 15px var(--color-black-a0p34), 0 10px 18px var(--color-black-a0p34);
+  isolation: isolate;
+}
+.sport-pin__image {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sport-pin__capacity {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  min-width: 43px;
+  height: 43px;
+  padding: 0 5px;
+  border: 1px solid var(--color-white-a0p85);
+  border-radius: 50%;
+  background: var(--color-rgb-8-10-12-a0p78);
+  color: var(--color-hex-f4f6f7);
+  font-size: .78rem;
+  font-weight: 900;
+  letter-spacing: -.04em;
+  white-space: nowrap;
+  backdrop-filter: blur(5px);
+}
+.sport-pin__seams {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+  opacity: .95;
+}
+.sport-pin--default .sport-pin__seams {
+  background: radial-gradient(circle at 28% 20%, var(--color-white-a0p12), transparent 36%);
+  box-shadow: inset -8px -10px 15px var(--color-black-a0p34);
+}
+.sport-pin--football { background: radial-gradient(circle at 30% 22%, var(--color-hex-f4f6f7), var(--color-football-base) 58%, var(--color-hex-c8cdd1)); }
+.sport-pin--football .sport-pin__seams { background: radial-gradient(circle at 50% 14%, var(--color-football-panel) 0 8px, transparent 9px), radial-gradient(circle at 10% 52%, var(--color-football-panel) 0 8px, transparent 9px), radial-gradient(circle at 90% 52%, var(--color-football-panel) 0 8px, transparent 9px), radial-gradient(circle at 50% 88%, var(--color-football-panel) 0 8px, transparent 9px); }
+.sport-pin--basketball { background: radial-gradient(circle at 30% 22%, var(--color-basketball-highlight), var(--color-basketball-base) 52%, var(--color-basketball-shadow)); }
+.sport-pin--basketball .sport-pin__seams { background: linear-gradient(90deg, transparent 48%, var(--color-basketball-seam) 48% 52%, transparent 52%), linear-gradient(transparent 48%, var(--color-basketball-seam) 48% 52%, transparent 52%); }
+.sport-pin--volleyball { background: radial-gradient(circle at 30% 22%, var(--color-volleyball-highlight), var(--color-volleyball-base) 50%, var(--color-volleyball-shadow)); }
+.sport-pin--volleyball .sport-pin__seams { background: conic-gradient(from 35deg, transparent 0 20%, var(--color-volleyball-seam) 20% 31%, transparent 31% 53%, var(--color-volleyball-seam) 53% 64%, transparent 64%); }
+.sport-pin--tennis { background: radial-gradient(circle at 30% 22%, var(--color-tennis-highlight), var(--color-tennis-base) 53%, var(--color-tennis-shadow)); }
+.sport-pin--tennis .sport-pin__seams { border: 3px solid transparent; border-left-color: var(--color-hex-f4f6f7); border-right-color: var(--color-hex-f4f6f7); border-radius: 45%; transform: rotate(22deg) scale(.82, 1.12); }
+.sport-pin--pingpong { background: radial-gradient(circle at 30% 22%, var(--color-pingpong-highlight), var(--color-pingpong-base) 52%, var(--color-pingpong-shadow)); }
+
+.sport-pin--ticket {
+  width: 78px;
+  height: 60px;
+  border-radius: 15px;
+  background: linear-gradient(145deg, var(--color-ticket-highlight), var(--color-ticket-base) 58%, var(--color-ticket-shadow));
+  clip-path: polygon(0 0, 100% 0, 100% 14%, 94% 18%, 100% 22%, 100% 78%, 94% 82%, 100% 86%, 100% 100%, 0 100%, 0 86%, 6% 82%, 0 78%, 0 22%, 6% 18%, 0 14%);
+}
+.sport-pin--ticket .sport-pin__seams {
+  inset: 8px 12px;
+  border: 1px dashed var(--color-ticket-ink);
+  border-radius: 8px;
+  background: radial-gradient(circle, var(--color-ticket-ink) 0 1.5px, transparent 2px) 0 50% / 9px 9px repeat-x;
+  opacity: .55;
+}
+
+.sport-pin--eightball {
+  background: radial-gradient(circle at 30% 22%, var(--color-eightball-highlight), var(--color-eightball-base) 48%, var(--color-eightball-shadow));
+}
+.sport-pin--eightball .sport-pin__seams::before {
+  content: "8";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--color-eightball-spot);
+  color: var(--color-eightball-number);
+  font-size: 1.25rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.sport-pin--beer {
+  width: 68px;
+  height: 76px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: 0 10px 18px var(--color-black-a0p34);
+}
+.sport-pin--beer .sport-pin__seams {
+  inset: 13px 15px 7px 7px;
+  border: 2px solid var(--color-white-a0p85);
+  border-radius: 8px 8px 12px 12px;
+  background: linear-gradient(90deg, var(--color-beer-shadow), var(--color-beer-base) 28%, var(--color-beer-highlight) 62%, var(--color-beer-base));
+  box-shadow: inset -7px -8px 12px var(--color-black-a0p28);
+}
+.sport-pin--beer .sport-pin__seams::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: -11px;
+  width: 19px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--color-beer-foam);
+  box-shadow: 12px -3px 0 2px var(--color-beer-foam), 25px 1px 0 1px var(--color-beer-foam);
+}
+.sport-pin--beer .sport-pin__seams::after {
+  content: "";
+  position: absolute;
+  right: -17px;
+  top: 11px;
+  width: 18px;
+  height: 27px;
+  border: 5px solid var(--color-white-a0p85);
+  border-left: 0;
+  border-radius: 0 14px 14px 0;
+}
+
+.sport-pin--popcorn {
+  width: 70px;
+  height: 78px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: 0 10px 18px var(--color-black-a0p34);
+}
+.sport-pin--popcorn .sport-pin__seams {
+  inset: 22px 9px 3px;
+  clip-path: polygon(7% 0, 93% 0, 79% 100%, 21% 100%);
+  background: repeating-linear-gradient(90deg, var(--color-popcorn-red) 0 10px, var(--color-popcorn-cream) 10px 20px);
+  border-bottom: 3px solid var(--color-white-a0p85);
+}
+.sport-pin--popcorn .sport-pin__seams::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -19px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, var(--color-popcorn-cream), var(--color-popcorn-kernel) 58%, var(--color-popcorn-kernel-shadow));
+  box-shadow: 13px -7px 0 2px var(--color-popcorn-kernel), 28px -2px 0 1px var(--color-popcorn-cream), 39px -9px 0 1px var(--color-popcorn-kernel), 22px 5px 0 2px var(--color-popcorn-cream);
+}
+
+.event-map-marker {
+  width: 64px;
+  height: 64px;
+}
+.event-map-marker .sport-pin {
+  width: 54px;
+  height: 54px;
+  transform: scale(var(--map-marker-scale, 1));
+  transform-origin: center;
+  transition: transform 120ms ease-out;
+}
+.event-map-marker .sport-pin--ticket { width: 62px; height: 48px; }
+.event-map-marker .sport-pin--beer { width: 52px; height: 58px; }
+.event-map-marker .sport-pin--popcorn { width: 52px; height: 60px; }
+.event-map-marker .sport-pin__capacity {
+  min-width: 33px;
+  height: 33px;
+  padding-inline: 4px;
+  font-size: .61rem;
+}
+@media (max-width: 560px) {
+  .event-pin-grid { grid-template-columns: repeat(2, minmax(112px, 1fr)); max-height: 290px; }
+  .event-form-section { padding: 14px; }
 }

@@ -40,7 +40,7 @@ function locationVisibility(user) {
 }
 
 function localFallbackUser() {
-  const name = (localStorage.getItem("player_name") || "Guest").trim() || "Guest";
+  const name = (localStorage.getItem("player_name") || "Гість").trim() || "Гість";
   return {
     id: null,
     name,
@@ -83,7 +83,7 @@ export default function MapPage() {
     } catch (error) {
       setServerOnline(false);
       setServerError(
-        "Backend недоступний. Запустіть FastAPI на цьому ПК; карта продовжить працювати локально."
+        "Серверна частина недоступна. Запустіть FastAPI на цьому ПК; карта продовжить працювати локально."
       );
       setUser((current) => current || localFallbackUser());
       return null;
@@ -127,7 +127,7 @@ export default function MapPage() {
       } catch {
         setServerOnline(false);
         setServerError(
-          "Зв’язок із backend втрачено. Ваша позиція залишається видимою локально й синхронізується після відновлення сервера."
+          "Зв’язок із сервером втрачено. Ваша позиція залишається видимою локально й синхронізується після відновлення сервера."
         );
       }
     },
@@ -251,7 +251,7 @@ export default function MapPage() {
       } catch {
         if (active) {
           setServerOnline(false);
-          setServerError("Втрачено з’єднання з backend. Повторне підключення виконується автоматично.");
+          setServerError("Втрачено з’єднання із сервером. Повторне підключення виконується автоматично.");
         }
       }
     }

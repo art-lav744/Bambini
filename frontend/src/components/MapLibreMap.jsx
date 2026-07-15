@@ -293,9 +293,28 @@ function createEventMarker(event) {
   element.type = "button";
   element.className = "event-map-marker";
   element.setAttribute("aria-label", event.title);
-  element.innerHTML = event.image_url
-    ? `<span class="event-map-marker__visual"><span class="event-map-marker__image"><img src="${escapeHtml(event.image_url)}" alt=""></span></span>`
-    : `<span class="event-map-marker__visual"><span class="event-map-marker__dot"></span></span>`;
+
+  const supportedPinTypes = [
+    "default",
+    "football",
+    "basketball",
+    "volleyball",
+    "tennis",
+    "pingpong",
+    "ticket",
+    "eightball",
+    "beer",
+    "popcorn",
+  ];
+  const pinType = supportedPinTypes.includes(event.pin_type) ? event.pin_type : "default";
+  const imageHtml = pinType === "default" && event.image_url
+    ? `<img class="sport-pin__image" src="${escapeHtml(event.image_url)}" alt="">`
+    : "";
+  const capacityHtml = event.capacity
+    ? `<span class="sport-pin__capacity">${escapeHtml(`${event.participant_count || 0}/${event.capacity}`)}</span>`
+    : "";
+
+  element.innerHTML = `<span class="sport-pin sport-pin--${pinType}">${imageHtml}<span class="sport-pin__seams"></span>${capacityHtml}</span>`;
 
   const popup = new maplibregl.Popup({
     offset: 24,
@@ -308,6 +327,7 @@ function createEventMarker(event) {
         <div class="map-selection-card__badges">
           <span>${escapeHtml(eventVisibilityLabel(event.visibility))}</span>
           <span>${escapeHtml(formatEventDateTime(event.start_time))}</span>
+          ${event.capacity ? `<span>${event.participant_count || 0}/${event.capacity} учасників</span>` : ""}
         </div>
         <h3>${escapeHtml(event.title)}</h3>
         <p>${escapeHtml(event.description || "Без опису")}</p>
@@ -421,13 +441,15 @@ export default function MapLibreMap({
     const map = mapRef.current;
     if (!map) return;
 
-    const entries = [
-      ...eventMarkersRef.current,
-      ...Array.from(userMarkersRef.current.values()),
-    ];
+    const eventEntries = eventMarkersRef.current;
+    const userEntries = Array.from(userMarkersRef.current.values());
 
-    applyMarkerVisualScale(entries, map.getZoom());
-    declutterMarkers(map, entries);
+    applyMarkerVisualScale([...eventEntries, ...userEntries], map.getZoom());
+
+    // Event markers must stay exactly on their geographic coordinates while zooming.
+    // Collision offsets are therefore applied only to people markers.
+    eventEntries.forEach((entry) => entry.marker.setOffset([0, 0]));
+    declutterMarkers(map, userEntries);
   }, []);
 
   const scheduleMarkerLayout = useCallback(() => {
@@ -529,6 +551,7 @@ export default function MapLibreMap({
       .filter(Boolean);
 
     eventMarkersRef.current.forEach((entry) => entry.marker.addTo(map));
+    scheduleMarkerLayout();
 
     // Якщо відкрита одна подія — перемістити карту на неї
     if (eventPins.length === 1) {
@@ -545,7 +568,7 @@ export default function MapLibreMap({
         });
       }
     }
-  }, [eventPins, mapReady]);
+  }, [eventPins, mapReady, scheduleMarkerLayout]);
 
   useEffect(() => {
     const map = mapRef.current;

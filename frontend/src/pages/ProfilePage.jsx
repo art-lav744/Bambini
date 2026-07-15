@@ -113,7 +113,7 @@ export default function ProfilePage() {
         <div className="profile-hero">
           <div className="profile-avatar profile-avatar--photo">
             {photoUrl ? (
-              <img src={photoUrl} alt={name || "User"} />
+              <img src={photoUrl} alt={name || "Користувач"} />
             ) : (
               initials(name || user?.name)
             )}

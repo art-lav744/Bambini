@@ -80,6 +80,14 @@ def _run_lightweight_sqlite_migrations() -> None:
         if activity_columns and "start_time" not in activity_columns:
             connection.execute(text('ALTER TABLE "activity" ADD COLUMN start_time DATETIME'))
 
+        if activity_columns and "capacity" not in activity_columns:
+            connection.execute(text('ALTER TABLE "activity" ADD COLUMN capacity INTEGER'))
+
+        if activity_columns and "pin_type" not in activity_columns:
+            connection.execute(
+                text('ALTER TABLE "activity" ADD COLUMN pin_type TEXT NOT NULL DEFAULT "default"')
+            )
+
 
 def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)

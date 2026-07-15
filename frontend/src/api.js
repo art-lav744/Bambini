@@ -1,4 +1,26 @@
-const RAW_API_URL = import.meta.env.VITE_API_URL || "/api";
+const CONFIGURED_API_URL = (import.meta.env.VITE_API_URL || "").trim();
+
+function resolveApiUrl() {
+  if (!CONFIGURED_API_URL) return "/api";
+
+  try {
+    const configured = new URL(CONFIGURED_API_URL, window.location.origin);
+    const configuredIsLoopback = ["127.0.0.1", "localhost"].includes(configured.hostname);
+    const pageIsLoopback = ["127.0.0.1", "localhost"].includes(window.location.hostname);
+
+    // A phone/tunnel must never call its own localhost. Use the same-origin
+    // Vite /api proxy instead.
+    if (configuredIsLoopback && !pageIsLoopback) {
+      return "/api";
+    }
+  } catch {
+    // Relative values such as /api are valid and handled below.
+  }
+
+  return CONFIGURED_API_URL;
+}
+
+const RAW_API_URL = resolveApiUrl();
 const API_URL = RAW_API_URL.endsWith("/") ? RAW_API_URL.slice(0, -1) : RAW_API_URL;
 
 async function request(path, options = {}) {

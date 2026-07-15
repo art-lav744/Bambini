@@ -3,6 +3,68 @@ import maplibregl from "maplibre-gl";
 
 const DEFAULT_CENTER = [24.7111, 48.9226];
 const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
+const MAP_VIEW_STORAGE_KEY = "bambini:map:view:v1";
+const DEFAULT_ZOOM = 13;
+
+function loadSavedMapView() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MAP_VIEW_STORAGE_KEY) || "null");
+    const longitude = Number(saved?.longitude);
+    const latitude = Number(saved?.latitude);
+    const zoom = Number(saved?.zoom);
+    const bearing = Number(saved?.bearing ?? 0);
+    const pitch = Number(saved?.pitch ?? 0);
+
+    if (
+      !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
+      !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+      !Number.isFinite(zoom)
+    ) {
+      return null;
+    }
+
+    return {
+      center: [longitude, latitude],
+      zoom: Math.min(22, Math.max(0, zoom)),
+      bearing: Number.isFinite(bearing) ? bearing : 0,
+      pitch: Number.isFinite(pitch) ? Math.min(70, Math.max(0, pitch)) : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveMapView(map) {
+  const center = map.getCenter();
+  try {
+    localStorage.setItem(
+      MAP_VIEW_STORAGE_KEY,
+      JSON.stringify({
+        longitude: center.lng,
+        latitude: center.lat,
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      })
+    );
+  } catch {
+    // Storage may be disabled in private browsing or restricted webviews.
+  }
+}
+
+function normalizeLngLat(value) {
+  const longitude = Number(value?.longitude ?? value?.lng);
+  const latitude = Number(value?.latitude ?? value?.lat);
+
+  if (
+    !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
+    !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+  ) {
+    return null;
+  }
+
+  return [longitude, latitude];
+}
 
 function safeSetPaint(map, layerId, property, value) {
   try {
@@ -158,8 +220,11 @@ function createEventMarker(event) {
     )}</p><small>${event.is_public ? "Public" : "Private"}</small><br><a class="map-popup__link" href="/room/${event.code}">Відкрити подію</a></div>`
   );
 
+  const lngLat = normalizeLngLat(event);
+  if (!lngLat) return null;
+
   return new maplibregl.Marker({ element, anchor: "center" })
-    .setLngLat([event.longitude, event.latitude])
+    .setLngLat(lngLat)
     .setPopup(popup);
 }
 
@@ -176,8 +241,11 @@ function createCheckpointMarker(checkpoint) {
     }</div>`
   );
 
+  const lngLat = normalizeLngLat(checkpoint);
+  if (!lngLat) return null;
+
   return new maplibregl.Marker({ element, anchor: "center" })
-    .setLngLat([checkpoint.longitude, checkpoint.latitude])
+    .setLngLat(lngLat)
     .setPopup(popup);
 }
 
@@ -250,12 +318,14 @@ export default function MapLibreMap({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return undefined;
 
+    const savedView = loadSavedMapView();
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: STYLE_URL,
-      center: DEFAULT_CENTER,
-      zoom: 13,
-      pitch: 0,
+      center: savedView?.center || DEFAULT_CENTER,
+      zoom: savedView?.zoom ?? DEFAULT_ZOOM,
+      bearing: savedView?.bearing ?? 0,
+      pitch: savedView?.pitch ?? 0,
       attributionControl: true,
       maxPitch: 70,
     });
@@ -267,8 +337,17 @@ export default function MapLibreMap({
 
     map.on("load", () => {
       applyBleakStyle(map);
+      map.resize();
       setMapReady(true);
     });
+
+    const persistView = () => saveMapView(map);
+    map.on("moveend", persistView);
+    map.on("rotateend", persistView);
+    map.on("pitchend", persistView);
+
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(containerRef.current);
 
     mapRef.current = map;
     return () => {
@@ -277,6 +356,11 @@ export default function MapLibreMap({
       userMarkersRef.current.forEach((entry) => entry.marker.remove());
       userMarkersRef.current.clear();
       selectionMarkerRef.current?.remove();
+      saveMapView(map);
+      resizeObserver.disconnect();
+      map.off("moveend", persistView);
+      map.off("rotateend", persistView);
+      map.off("pitchend", persistView);
       map.remove();
       mapRef.current = null;
     };
@@ -287,11 +371,10 @@ export default function MapLibreMap({
     if (!map || !mapReady) return;
 
     checkpointMarkersRef.current.forEach((marker) => marker.remove());
-    checkpointMarkersRef.current = checkpoints.map((checkpoint) => {
-      const marker = createCheckpointMarker(checkpoint);
-      marker.addTo(map);
-      return marker;
-    });
+    checkpointMarkersRef.current = checkpoints
+      .map((checkpoint) => createCheckpointMarker(checkpoint))
+      .filter(Boolean);
+    checkpointMarkersRef.current.forEach((marker) => marker.addTo(map));
   }, [checkpoints, mapReady]);
 
   useEffect(() => {
@@ -300,12 +383,9 @@ export default function MapLibreMap({
 
     eventMarkersRef.current.forEach((marker) => marker.remove());
     eventMarkersRef.current = eventPins
-      .filter((event) => Number.isFinite(event.latitude) && Number.isFinite(event.longitude))
-      .map((event) => {
-        const marker = createEventMarker(event);
-        marker.addTo(map);
-        return marker;
-      });
+      .map((event) => createEventMarker(event))
+      .filter(Boolean);
+    eventMarkersRef.current.forEach((marker) => marker.addTo(map));
   }, [eventPins, mapReady]);
 
   useEffect(() => {
@@ -359,14 +439,18 @@ export default function MapLibreMap({
               : `Оновлено ${item.user.age_seconds || 0} с тому`
           }</p></div>`
         );
+        const lngLat = normalizeLngLat(item.user);
+        if (!lngLat) continue;
+
         const marker = new maplibregl.Marker({ element, anchor: "center" })
-          .setLngLat([item.user.longitude, item.user.latitude])
+          .setLngLat(lngLat)
           .setPopup(popup)
           .addTo(map);
         entry = { marker, signature };
         userMarkersRef.current.set(item.key, entry);
       } else {
-        entry.marker.setLngLat([item.user.longitude, item.user.latitude]);
+        const lngLat = normalizeLngLat(item.user);
+        if (lngLat) entry.marker.setLngLat(lngLat);
       }
     }
   }, [currentLocation, currentUser, friendLocations, mapReady]);
@@ -382,7 +466,9 @@ export default function MapLibreMap({
       element.type = "button";
       element.innerHTML = "<span>+</span>";
 
-      const marker = new maplibregl.Marker({ element }).setLngLat(event.lngLat).addTo(map);
+      const marker = new maplibregl.Marker({ element, anchor: "center" })
+        .setLngLat(event.lngLat)
+        .addTo(map);
       selectionMarkerRef.current = marker;
 
       const title = window.prompt("Назва контрольної точки:");
@@ -419,9 +505,10 @@ export default function MapLibreMap({
     const map = mapRef.current;
     if (!map) return;
 
-    if (currentLocation) {
+    const currentLngLat = normalizeLngLat(currentLocation);
+    if (currentLngLat) {
       map.flyTo({
-        center: [currentLocation.longitude, currentLocation.latitude],
+        center: currentLngLat,
         zoom: Math.max(map.getZoom(), 15),
         duration: 900,
       });

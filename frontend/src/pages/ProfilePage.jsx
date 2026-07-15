@@ -169,6 +169,36 @@ export default function ProfilePage() {
               <small>Введіть його на іншому пристрої. Не передавайте стороннім.</small>
             </button>
 
+            <section className="settings-card location-visibility-card">
+              <div className="location-visibility-card__heading">
+                <strong>Хто бачить мою геолокацію</strong>
+                <span>Позиція на карті оновлюється, поки вебзастосунок активний.</span>
+              </div>
+
+              <div
+                className="segmented-setting"
+                role="radiogroup"
+                aria-label="Видимість геолокації"
+              >
+                {LOCATION_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={visibility === option.value}
+                    className={`segmented-setting__option${
+                      visibility === option.value ? " is-active" : ""
+                    }`}
+                    onClick={() => changeLocationVisibility(option.value)}
+                    disabled={savingVisibility}
+                  >
+                    <strong>{option.title}</strong>
+                    <span>{option.description}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
             <form className="profile-form" onSubmit={saveProfile}>
               <label>
                 Ім'я

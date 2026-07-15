@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import hmac
 import os
 import random
 import string
@@ -38,6 +39,7 @@ from .models import (
     UserConnect,
     UserCreate,
     UserLocation,
+    UserLogin,
     UserRead,
     UserUpdate,
     utc_now,
@@ -114,7 +116,7 @@ def verify_password(password: str, password_hash: str) -> bool:
         raw = base64.b64decode(password_hash)
         salt, stored = raw[:16], raw[16:]
         dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
-        return hashlib.compare_digest(dk, stored)
+        return hmac.compare_digest(dk, stored)
     except Exception:
         return False
 

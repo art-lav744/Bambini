@@ -33,6 +33,27 @@ if (-not $ViteReady) {
     exit 1
 }
 
+Write-Host "Checking Vite /api proxy -> FastAPI..." -ForegroundColor Yellow
+$ApiReady = $false
+for ($i = 0; $i -lt 30; $i++) {
+    try {
+        $ApiResponse = Invoke-RestMethod -Uri "http://127.0.0.1:5173/api/health" -TimeoutSec 1
+        if ($ApiResponse.status -eq "ok") {
+            $ApiReady = $true
+            break
+        }
+    } catch {
+        Start-Sleep -Milliseconds 700
+    }
+}
+
+if (-not $ApiReady) {
+    Write-Host "Frontend is running, but /api cannot reach FastAPI." -ForegroundColor Red
+    Write-Host "Check the backend PowerShell window and frontend/vite.config.js." -ForegroundColor Yellow
+    exit 1
+}
+
+Write-Host "Backend proxy is ready: http://127.0.0.1:5173/api/health" -ForegroundColor Green
 Write-Host "Opening HTTPS tunnel. Use the https://...trycloudflare.com URL on Android." -ForegroundColor Green
 Write-Host "Keep this window open while testing." -ForegroundColor Yellow
 cloudflared tunnel --url http://127.0.0.1:5173

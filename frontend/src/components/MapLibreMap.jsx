@@ -93,18 +93,13 @@ function applyBleakStyle(map) {
     const sourceLayer = String(layer["source-layer"] || "").toLowerCase();
     const key = `${id} ${sourceLayer}`;
 
-    if (layer.type === "background") {
-      safeSetPaint(map, layer.id, "background-color", "#050607");
-      continue;
-    }
-
+    // Keep the base OpenFreeMap dark style intact. Repainting every fill layer
+    // after the style loads caused the whole map to visibly turn almost black
+    // about a second after entering /map.
     if (layer.type === "fill") {
       if (key.includes("water")) {
-        safeSetPaint(map, layer.id, "fill-color", "#0a1117");
-        safeSetPaint(map, layer.id, "fill-opacity", 0.98);
-      } else if (key.includes("building")) {
-        safeSetPaint(map, layer.id, "fill-color", "#171a1e");
-        safeSetPaint(map, layer.id, "fill-outline-color", "#252a30");
+        safeSetPaint(map, layer.id, "fill-color", "#101820");
+        safeSetPaint(map, layer.id, "fill-opacity", 0.96);
       } else if (
         key.includes("park") ||
         key.includes("landcover") ||
@@ -112,17 +107,8 @@ function applyBleakStyle(map) {
         key.includes("wood") ||
         key.includes("grass")
       ) {
-        safeSetPaint(map, layer.id, "fill-color", "#101315");
-        safeSetPaint(map, layer.id, "fill-opacity", 0.9);
-      } else {
-        safeSetPaint(map, layer.id, "fill-color", "#0c0e10");
+        safeSetPaint(map, layer.id, "fill-opacity", 0.72);
       }
-      continue;
-    }
-
-    if (layer.type === "fill-extrusion") {
-      safeSetPaint(map, layer.id, "fill-extrusion-color", "#171a1e");
-      safeSetPaint(map, layer.id, "fill-extrusion-opacity", 0.75);
       continue;
     }
 
@@ -139,20 +125,16 @@ function applyBleakStyle(map) {
           key.includes("motorway") ||
           key.includes("trunk") ||
           key.includes("primary");
-        safeSetPaint(map, layer.id, "line-color", major ? "#e2e6e9" : "#899199");
-        safeSetPaint(map, layer.id, "line-opacity", major ? 0.96 : 0.82);
+        safeSetPaint(map, layer.id, "line-color", major ? "#e3e7ea" : "#9ca4ab");
+        safeSetPaint(map, layer.id, "line-opacity", major ? 0.94 : 0.8);
       } else if (key.includes("boundary")) {
         safeSetPaint(map, layer.id, "line-color", "#555d65");
-      } else if (key.includes("water")) {
-        safeSetPaint(map, layer.id, "line-color", "#26333d");
       }
       continue;
     }
 
     if (layer.type === "symbol") {
-      // Keep the map visually clean: remove geographic place labels such as
-      // countries, regions, cities, suburbs and neighbourhoods. Road/street
-      // labels stay visible because they come from transportation-name layers.
+      // Remove broad geographic labels while keeping road/street labels.
       const isPlaceLabel =
         sourceLayer === "place" ||
         sourceLayer.includes("place") ||
@@ -181,17 +163,9 @@ function applyBleakStyle(map) {
         continue;
       }
 
-      safeSetPaint(map, layer.id, "text-color", "#aeb5bb");
-      safeSetPaint(map, layer.id, "text-halo-color", "#07090b");
-      safeSetPaint(map, layer.id, "text-halo-width", 1.25);
-      safeSetPaint(map, layer.id, "icon-opacity", 0.72);
-      continue;
-    }
-
-    if (layer.type === "hillshade") {
-      safeSetPaint(map, layer.id, "hillshade-shadow-color", "#000000");
-      safeSetPaint(map, layer.id, "hillshade-highlight-color", "#2b3034");
-      safeSetPaint(map, layer.id, "hillshade-accent-color", "#15191d");
+      safeSetPaint(map, layer.id, "text-color", "#b8c0c7");
+      safeSetPaint(map, layer.id, "text-halo-color", "#0a0d10");
+      safeSetPaint(map, layer.id, "text-halo-width", 1.1);
     }
   }
 }
@@ -548,13 +522,13 @@ export default function MapLibreMap({
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
-    eventMarkersRef.current.forEach((marker) => marker.remove());
+    eventMarkersRef.current.forEach((entry) => entry.marker.remove());
 
     eventMarkersRef.current = eventPins
       .map((event) => createEventMarker(event))
       .filter(Boolean);
 
-    eventMarkersRef.current.forEach((marker) => marker.addTo(map));
+    eventMarkersRef.current.forEach((entry) => entry.marker.addTo(map));
 
     // Якщо відкрита одна подія — перемістити карту на неї
     if (eventPins.length === 1) {

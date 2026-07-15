@@ -473,7 +473,13 @@ export default function MapLibreMap({
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: STYLE_URL,
-      center: savedView?.center || DEFAULT_CENTER,
+      center:
+        eventPins.length === 1
+          ? [
+              Number(eventPins[0].longitude),
+              Number(eventPins[0].latitude),
+            ]
+          : savedView?.center || DEFAULT_CENTER,
       zoom: savedView?.zoom ?? DEFAULT_ZOOM,
       bearing: savedView?.bearing ?? 0,
       pitch: savedView?.pitch ?? 0,
@@ -542,13 +548,30 @@ export default function MapLibreMap({
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
-    eventMarkersRef.current.forEach((entry) => entry.marker.remove());
+    eventMarkersRef.current.forEach((marker) => marker.remove());
+
     eventMarkersRef.current = eventPins
       .map((event) => createEventMarker(event))
       .filter(Boolean);
-    eventMarkersRef.current.forEach((entry) => entry.marker.addTo(map));
-    scheduleMarkerLayout();
-  }, [eventPins, mapReady, scheduleMarkerLayout]);
+
+    eventMarkersRef.current.forEach((marker) => marker.addTo(map));
+
+    // Якщо відкрита одна подія — перемістити карту на неї
+    if (eventPins.length === 1) {
+      const event = eventPins[0];
+
+      if (
+        Number.isFinite(Number(event.longitude)) &&
+        Number.isFinite(Number(event.latitude))
+      ) {
+        map.flyTo({
+          center: [Number(event.longitude), Number(event.latitude)],
+          zoom: 16,
+          duration: 800,
+        });
+      }
+    }
+  }, [eventPins, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -16,14 +16,10 @@ def _run_lightweight_sqlite_migrations() -> None:
             row[1]
             for row in connection.execute(text('PRAGMA table_info("user")')).fetchall()
         }
-        if user_columns and "profile_code" not in user_columns:
-            connection.execute(text('ALTER TABLE "user" ADD COLUMN profile_code TEXT'))
-            connection.execute(
-                text(
-                    'CREATE INDEX IF NOT EXISTS ix_user_profile_code '
-                    'ON "user" (profile_code)'
-                )
-            )
+        if user_columns and "profile_code" in user_columns:
+            connection.execute(text('DROP INDEX IF EXISTS ix_user_profile_code'))
+            connection.execute(text('ALTER TABLE "user" DROP COLUMN profile_code'))
+            user_columns.remove("profile_code")
 
         if user_columns and "location_visibility" not in user_columns:
             connection.execute(
@@ -58,13 +54,31 @@ def _run_lightweight_sqlite_migrations() -> None:
             row[1]
             for row in connection.execute(text('PRAGMA table_info("activity")')).fetchall()
         }
-        if activity_columns and "is_public" not in activity_columns:
+        if activity_columns and "visibility" not in activity_columns:
             connection.execute(
                 text(
-                    'ALTER TABLE "activity" ADD COLUMN is_public '
-                    'INTEGER NOT NULL DEFAULT 1'
+                    'ALTER TABLE "activity" ADD COLUMN visibility '
+                    'TEXT NOT NULL DEFAULT "public"'
                 )
             )
+            if "is_public" in activity_columns:
+                connection.execute(
+                    text(
+                        'UPDATE "activity" SET visibility = '
+                        'CASE WHEN is_public = 1 THEN "public" ELSE "private" END'
+                    )
+                )
+            activity_columns.add("visibility")
+
+        if activity_columns and "is_public" in activity_columns:
+            connection.execute(text('ALTER TABLE "activity" DROP COLUMN is_public'))
+            activity_columns.remove("is_public")
+
+        if activity_columns and "image_url" not in activity_columns:
+            connection.execute(text('ALTER TABLE "activity" ADD COLUMN image_url TEXT'))
+
+        if activity_columns and "start_time" not in activity_columns:
+            connection.execute(text('ALTER TABLE "activity" ADD COLUMN start_time DATETIME'))
 
 
 def create_db_and_tables() -> None:

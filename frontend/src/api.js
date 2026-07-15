@@ -61,11 +61,8 @@ export const api = {
   createUser(payload) {
     return request("/users", { method: "POST", body: JSON.stringify(payload) });
   },
-  connectUser(profileCode) {
-    return request("/users/connect", {
-      method: "POST",
-      body: JSON.stringify({ profile_code: profileCode }),
-    });
+  login(payload) {
+    return request("/login", { method: "POST", body: JSON.stringify(payload) });
   },
   getUser(userId) {
     return request(`/users/${userId}`);
@@ -114,12 +111,20 @@ export const api = {
       method: "POST",
     });
   },
+  deleteFriend(userId, friendshipId) {
+    return request(`/users/${userId}/friends/${friendshipId}`, {
+      method: "DELETE",
+    });
+  },
 
   createActivity(payload) {
     return request("/activities", { method: "POST", body: JSON.stringify(payload) });
   },
   getPublicActivities() {
     return request("/activities/public/list");
+  },
+  getFriendActivities(userId) {
+    return request(`/users/${userId}/friend-activities`);
   },
   getActivity(code) {
     return request(`/activities/${code}`);
@@ -128,6 +133,11 @@ export const api = {
     return request(`/activities/${code}/join`, {
       method: "POST",
       body: JSON.stringify({ user_id: userId }),
+    });
+  },
+  leaveActivity(code, userId) {
+    return request(`/activities/${code}/members/${userId}`, {
+      method: "DELETE",
     });
   },
   getUserActivities(userId) {

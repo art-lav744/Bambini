@@ -3,6 +3,8 @@ import maplibregl from "maplibre-gl";
 
 const DEFAULT_CENTER = [24.7111, 48.9226];
 const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 21;
 
 function hidePlaceLabels(map) {
   const layers = map.getStyle()?.layers || [];
@@ -60,6 +62,8 @@ export default function EventLocationPicker({ value, onChange }) {
       style: STYLE_URL,
       center: value ? [value.longitude, value.latitude] : DEFAULT_CENTER,
       zoom: value ? 15 : 12,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
       attributionControl: false,
     });
 
@@ -113,7 +117,7 @@ export default function EventLocationPicker({ value, onChange }) {
         onChange(next);
         mapRef.current?.flyTo({
           center: [next.longitude, next.latitude],
-          zoom: 16,
+          zoom: Math.min(MAX_ZOOM, 16),
           duration: 700,
         });
       },

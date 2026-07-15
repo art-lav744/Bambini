@@ -36,7 +36,6 @@ from .models import (
     ParticipantJoin,
     ParticipantRead,
     User,
-    UserConnect,
     UserCreate,
     UserLocation,
     UserLogin,
@@ -73,30 +72,42 @@ def get_activity_or_404(code: str, session: Session) -> Activity:
     return activity
 
 
-def generate_profile_code(session: Session) -> str:
-    return generate_unique_code(
-        session,
-        User,
-        "profile_code",
-        14,
-        string.ascii_uppercase + string.digits,
-    )
-
-
-def ensure_profile_code(user: User, session: Session) -> User:
-    if not user.profile_code:
-        user.profile_code = generate_profile_code(session)
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-    return user
-
 
 def get_user_or_404(user_id: int, session: Session) -> User:
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    return ensure_profile_code(user, session)
+    return user
+
+
+EVENT_VISIBILITIES = {"public", "friends", "private"}
+
+
+def normalize_event_visibility(value: str) -> str:
+    visibility = (value or "").strip().lower()
+    if visibility not in EVENT_VISIBILITIES:
+        raise HTTPException(
+            status_code=422,
+            detail="visibility must be one of: public, friends, private",
+        )
+    return visibility
+
+
+def are_users_friends(user_id: int, other_user_id: int, session: Session) -> bool:
+    if user_id == other_user_id:
+        return True
+    friendship = session.exec(
+        select(Friendship).where(
+            (Friendship.status == "accepted")
+            & or_(
+                (Friendship.requester_id == user_id)
+                & (Friendship.addressee_id == other_user_id),
+                (Friendship.requester_id == other_user_id)
+                & (Friendship.addressee_id == user_id),
+            )
+        )
+    ).first()
+    return friendship is not None
 
 
 def normalized_utc(value):
@@ -171,7 +182,6 @@ def create_user(data: UserCreate, session: Session = Depends(get_session)):
         password_hash=hash_password(data.password) if data.password else None,
         photo_url=(data.photo_url or "").strip() or None,
         friend_code=friend_code,
-        profile_code=generate_profile_code(session),
         location_visibility="friends",
         location_sharing_enabled=True,
     )
@@ -187,7 +197,7 @@ def login_user(data: UserLogin, session: Session = Depends(get_session)):
     user = session.exec(select(User).where(User.email == email)).first()
     if user is None or not user.password_hash or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return ensure_profile_code(user, session)
+    return user
 
 
 @app.get("/users/{user_id}", response_model=UserRead)
@@ -195,16 +205,6 @@ def get_user(user_id: int, session: Session = Depends(get_session)):
     return get_user_or_404(user_id, session)
 
 
-@app.post("/users/connect", response_model=UserRead)
-def connect_existing_user(
-    data: UserConnect,
-    session: Session = Depends(get_session),
-):
-    code = data.profile_code.strip().upper()
-    user = session.exec(select(User).where(User.profile_code == code)).first()
-    if user is None:
-        raise HTTPException(status_code=404, detail="Profile code not found")
-    return ensure_profile_code(user, session)
 
 
 @app.patch("/users/{user_id}", response_model=UserRead)
@@ -398,6 +398,27 @@ def accept_friend_request(
     )
 
 
+@app.delete(
+    "/users/{user_id}/friends/{friendship_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_friendship(
+    user_id: int,
+    friendship_id: int,
+    session: Session = Depends(get_session),
+):
+    user = get_user_or_404(user_id, session)
+    friendship = session.get(Friendship, friendship_id)
+    if friendship is None:
+        raise HTTPException(status_code=404, detail="Friendship not found")
+    if user.id not in {friendship.requester_id, friendship.addressee_id}:
+        raise HTTPException(status_code=403, detail="You cannot delete this friendship")
+
+    session.delete(friendship)
+    session.commit()
+    return None
+
+
 @app.get("/users/{user_id}/friends", response_model=list[FriendConnectionRead])
 def list_friends(user_id: int, session: Session = Depends(get_session)):
     user = get_user_or_404(user_id, session)
@@ -577,6 +598,46 @@ def list_visible_locations(user_id: int, session: Session = Depends(get_session)
     return result
 
 
+@app.get("/users/{user_id}/friend-activities", response_model=list[ActivityRead])
+def list_friend_activities(user_id: int, session: Session = Depends(get_session)):
+    user = get_user_or_404(user_id, session)
+    friendships = session.exec(
+        select(Friendship).where(
+            (Friendship.status == "accepted")
+            & or_(
+                Friendship.requester_id == user.id,
+                Friendship.addressee_id == user.id,
+            )
+        )
+    ).all()
+
+    friend_ids = {
+        friendship.addressee_id
+        if friendship.requester_id == user.id
+        else friendship.requester_id
+        for friendship in friendships
+    }
+    if not friend_ids:
+        return []
+
+    owners = session.exec(
+        select(EventOwner).where(EventOwner.user_id.in_(friend_ids))
+    ).all()
+    activity_ids = [owner.activity_id for owner in owners]
+    if not activity_ids:
+        return []
+
+    activities = session.exec(
+        select(Activity)
+        .where(
+            (Activity.id.in_(activity_ids))
+            & (Activity.visibility.in_(["public", "friends"]))
+        )
+        .order_by(Activity.created_at.desc())
+    ).all()
+    return [activity_to_read(activity, session) for activity in activities]
+
+
 # -------------------- Activities / events --------------------
 
 def activity_to_read(activity: Activity, session: Session) -> ActivityRead:
@@ -587,7 +648,9 @@ def activity_to_read(activity: Activity, session: Session) -> ActivityRead:
         title=activity.title,
         description=activity.description,
         code=activity.code,
-        is_public=activity.is_public,
+        visibility=activity.visibility,
+        image_url=activity.image_url,
+        start_time=activity.start_time,
         created_at=activity.created_at,
         host_user_id=owner.user_id if owner else None,
         latitude=location.latitude if location else None,
@@ -621,7 +684,9 @@ def create_activity(data: ActivityCreate, session: Session = Depends(get_session
     activity = Activity(
         title=data.title.strip(),
         description=data.description.strip(),
-        is_public=data.is_public,
+        visibility=normalize_event_visibility(data.visibility),
+        image_url=(data.image_url or "").strip() or None,
+        start_time=data.start_time,
         code=generate_unique_code(
             session,
             Activity,
@@ -651,7 +716,7 @@ def create_activity(data: ActivityCreate, session: Session = Depends(get_session
 def list_public_activities(session: Session = Depends(get_session)):
     activities = session.exec(
         select(Activity)
-        .where(Activity.is_public == True)
+        .where(Activity.visibility == "public")
         .order_by(Activity.created_at.desc())
     ).all()
     return [activity_to_read(activity, session) for activity in activities]
@@ -674,8 +739,54 @@ def join_activity(
 ):
     activity = get_activity_or_404(code, session)
     get_user_or_404(data.user_id, session)
+
+    owner = session.get(EventOwner, activity.id)
+    if (
+        activity.visibility == "friends"
+        and owner is not None
+        and owner.user_id != data.user_id
+        and not are_users_friends(data.user_id, owner.user_id, session)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Ця подія доступна лише друзям організатора",
+        )
+
     ensure_event_member(activity.id, data.user_id, session)
     return activity_to_read(activity, session)
+
+
+@app.delete(
+    "/activities/{code}/members/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def leave_activity(
+    code: str,
+    user_id: int,
+    session: Session = Depends(get_session),
+):
+    activity = get_activity_or_404(code, session)
+    get_user_or_404(user_id, session)
+
+    owner = session.get(EventOwner, activity.id)
+    if owner and owner.user_id == user_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Організатор не може від’єднатися від власної події",
+        )
+
+    membership = session.exec(
+        select(EventMember).where(
+            (EventMember.activity_id == activity.id)
+            & (EventMember.user_id == user_id)
+        )
+    ).first()
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Ви не є учасником цієї події")
+
+    session.delete(membership)
+    session.commit()
+    return None
 
 
 @app.get(

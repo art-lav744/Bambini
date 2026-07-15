@@ -16,14 +16,10 @@ def _run_lightweight_sqlite_migrations() -> None:
             row[1]
             for row in connection.execute(text('PRAGMA table_info("user")')).fetchall()
         }
-        if user_columns and "profile_code" not in user_columns:
-            connection.execute(text('ALTER TABLE "user" ADD COLUMN profile_code TEXT'))
-            connection.execute(
-                text(
-                    'CREATE INDEX IF NOT EXISTS ix_user_profile_code '
-                    'ON "user" (profile_code)'
-                )
-            )
+        if user_columns and "profile_code" in user_columns:
+            connection.execute(text('DROP INDEX IF EXISTS ix_user_profile_code'))
+            connection.execute(text('ALTER TABLE "user" DROP COLUMN profile_code'))
+            user_columns.remove("profile_code")
 
         if user_columns and "location_visibility" not in user_columns:
             connection.execute(

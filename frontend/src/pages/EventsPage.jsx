@@ -4,13 +4,33 @@ import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 
+const FILTERS = [
+  { value: "mine", label: "Мої" },
+  { value: "friends", label: "Друзі" },
+  { value: "public", label: "Публічні" },
+];
+
 export default function EventsPage() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
-  const [events, setEvents] = useState([]);
+  const [myEvents, setMyEvents] = useState([]);
+  const [friendEvents, setFriendEvents] = useState([]);
   const [publicEvents, setPublicEvents] = useState([]);
+  const [filter, setFilter] = useState("mine");
   const [joiningId, setJoiningId] = useState(null);
+  const [leavingId, setLeavingId] = useState(null);
   const [error, setError] = useState("");
+
+  async function loadEvents(profile) {
+    const [mine, friends, publicData] = await Promise.all([
+      api.getUserActivities(profile.id),
+      api.getFriendActivities(profile.id),
+      api.getPublicActivities(),
+    ]);
+    setMyEvents(mine);
+    setFriendEvents(friends);
+    setPublicEvents(publicData);
+  }
 
   useEffect(() => {
     let active = true;
@@ -18,14 +38,7 @@ export default function EventsPage() {
       .then(async (profile) => {
         if (!active) return;
         setUser(profile);
-        const [ownEvents, publicData] = await Promise.all([
-          api.getUserActivities(profile.id),
-          api.getPublicActivities(),
-        ]);
-        if (active) {
-          setEvents(ownEvents);
-          setPublicEvents(publicData);
-        }
+        await loadEvents(profile);
       })
       .catch((err) => active && setError(err.message));
     return () => {
@@ -33,15 +46,20 @@ export default function EventsPage() {
     };
   }, []);
 
-  const joinedIds = useMemo(() => new Set(events.map((event) => event.id)), [events]);
-  const discoverableEvents = publicEvents.filter((event) => !joinedIds.has(event.id));
+  const joinedIds = useMemo(() => new Set(myEvents.map((event) => event.id)), [myEvents]);
+  const visibleEvents = filter === "mine"
+    ? myEvents
+    : filter === "friends"
+      ? friendEvents
+      : publicEvents;
 
-  async function joinPublicEvent(event) {
+  async function joinEvent(event) {
     if (!user) return;
     setJoiningId(event.id);
     setError("");
     try {
       await api.joinActivity(event.code, user.id);
+      await loadEvents(user);
       navigate(`/room/${event.code}`);
     } catch (err) {
       setError(err.message);
@@ -50,80 +68,109 @@ export default function EventsPage() {
     }
   }
 
+  async function leaveEvent(event) {
+    if (!user || event.host_user_id === user.id) return;
+    if (!window.confirm(`Від’єднатися від події «${event.title}»?`)) return;
+
+    setLeavingId(event.id);
+    setError("");
+    try {
+      await api.leaveActivity(event.code, user.id);
+      await loadEvents(user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLeavingId(null);
+    }
+  }
+
   return (
     <main className="main-tab-page">
       <div className="tab-page__content">
         <div className="eyebrow">Активності</div>
         <h1>Події</h1>
-        <p className="muted">
-          Події прив’язані до вашого профілю. Створені та приєднані події автоматично з’являються на головній карті.
-        </p>
 
         <div className="event-actions">
           <Link className="event-action-card" to="/create">
             <span className="event-action-card__symbol">+</span>
             <div>
               <strong>Створити подію</strong>
-              <span>Одна точка на карті, public або private</span>
+              <span>Одна точка на карті</span>
             </div>
           </Link>
-
           <Link className="event-action-card" to="/join">
             <span className="event-action-card__symbol">#</span>
             <div>
               <strong>Приєднатися за кодом</strong>
-              <span>Працює також для приватних подій</span>
+              <span>Для публічних і приватних подій</span>
             </div>
           </Link>
         </div>
 
-        <section className="event-list-section">
-          <h2>Мої події</h2>
-          {events.length ? (
-            <div className="event-list">
-              {events.map((event) => (
-                <Link className="event-list-card" key={event.id} to={`/room/${event.code}`}>
-                  <span className="event-list-card__pin">●</span>
-                  <div>
-                    <strong>{event.title}</strong>
-                    <span>{event.description || `Код ${event.code}`}</span>
-                  </div>
-                  <small>
-                    {event.host_user_id === user?.id ? "Організатор" : "Учасник"}
-                    {` · ${event.is_public ? "Public" : "Private"}`}
-                  </small>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state compact">Ви ще не створили та не приєдналися до жодної події.</div>
-          )}
-        </section>
+        <div className="event-filter" role="tablist" aria-label="Фільтр подій">
+          {FILTERS.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              role="tab"
+              aria-selected={filter === item.value}
+              className={`event-filter__button${filter === item.value ? " is-active" : ""}`}
+              onClick={() => setFilter(item.value)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
 
         <section className="event-list-section">
-          <h2>Публічні події</h2>
-          {discoverableEvents.length ? (
+          {visibleEvents.length ? (
             <div className="event-list">
-              {discoverableEvents.map((event) => (
-                <article className="event-list-card public-event-card" key={event.id}>
-                  <span className="event-list-card__pin">●</span>
-                  <div>
-                    <strong>{event.title}</strong>
-                    <span>{event.description || `Код ${event.code}`}</span>
-                  </div>
-                  <button
-                    className="small-action"
-                    type="button"
-                    onClick={() => joinPublicEvent(event)}
-                    disabled={joiningId === event.id}
-                  >
-                    {joiningId === event.id ? "..." : "Приєднатися"}
-                  </button>
-                </article>
-              ))}
+              {visibleEvents.map((event) => {
+                const joined = joinedIds.has(event.id);
+                const isHost = event.host_user_id === user?.id;
+                return (
+                  <article className="event-list-card public-event-card" key={event.id}>
+                    <span className="event-list-card__pin">●</span>
+                    <Link className="event-list-card__content" to={`/room/${event.code}`}>
+                      <strong>{event.title}</strong>
+                      <span>{event.description || `Код ${event.code}`}</span>
+                      <small>
+                        {isHost ? "Організатор" : joined ? "Учасник" : event.is_public ? "Публічна" : "Приватна"}
+                      </small>
+                    </Link>
+                    {joined ? (
+                      !isHost && (
+                        <button
+                          className="small-action small-action--danger"
+                          type="button"
+                          onClick={() => leaveEvent(event)}
+                          disabled={leavingId === event.id}
+                        >
+                          {leavingId === event.id ? "..." : "Вийти"}
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        className="small-action"
+                        type="button"
+                        onClick={() => joinEvent(event)}
+                        disabled={joiningId === event.id}
+                      >
+                        {joiningId === event.id ? "..." : "Приєднатися"}
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
             </div>
           ) : (
-            <div className="empty-state compact">Нових публічних подій поки немає.</div>
+            <div className="empty-state compact">
+              {filter === "mine"
+                ? "У вас ще немає подій."
+                : filter === "friends"
+                  ? "У друзів немає публічних подій."
+                  : "Публічних подій поки немає."}
+            </div>
           )}
         </section>
 

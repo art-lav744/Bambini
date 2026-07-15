@@ -22,6 +22,7 @@ export default function FriendsPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   const loadData = useCallback(async (profile, quiet = false) => {
     try {
@@ -86,6 +87,24 @@ export default function FriendsPage() {
       await loadData(user);
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function removeFriend(friend) {
+    if (!user || deletingId) return;
+    if (!window.confirm(`Видалити ${friend.name} з друзів?`)) return;
+
+    setError("");
+    setMessage("");
+    setDeletingId(friend.friendship_id);
+    try {
+      await api.deleteFriend(user.id, friend.friendship_id);
+      setMessage(`${friend.name} видалено з друзів`);
+      await loadData(user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -167,6 +186,14 @@ export default function FriendsPage() {
                       </span>
                     </div>
                     <span className={`presence-dot ${live?.presence || "hidden"}`} />
+                    <button
+                      className="small-action small-action--danger"
+                      type="button"
+                      onClick={() => removeFriend(friend)}
+                      disabled={deletingId === friend.friendship_id}
+                    >
+                      {deletingId === friend.friendship_id ? "..." : "Видалити"}
+                    </button>
                   </article>
                 );
               })}

@@ -118,7 +118,6 @@ class User(SQLModel, table=True):
     password_hash: str | None = Field(default=None, max_length=200)
     photo_url: str | None = Field(default=None, max_length=1000)
     friend_code: str = Field(index=True, unique=True, max_length=8)
-    profile_code: str | None = Field(default=None, index=True, max_length=16)
     location_sharing_enabled: bool = True
     location_visibility: str = Field(default="friends", max_length=20)
     created_at: datetime = Field(default_factory=utc_now)
@@ -141,14 +140,11 @@ class UserRead(SQLModel):
     name: str
     photo_url: str | None
     friend_code: str
-    profile_code: str
     location_sharing_enabled: bool
     location_visibility: str
     created_at: datetime
 
 
-class UserConnect(SQLModel):
-    profile_code: str = Field(min_length=12, max_length=16)
 
 
 class UserLogin(SQLModel):

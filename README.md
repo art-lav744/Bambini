@@ -27,3 +27,9 @@ Frontend:
 ```text
 http://localhost:5173
 ```
+## Current product behavior
+
+- Accounts are opened on any device with the same email and password. There is no secret profile code.
+- Events page filters: My / Friends / Public.
+- A participant can leave an event; the organizer cannot leave their own event.
+- Accepted friends can be removed from the friends page.

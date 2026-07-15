@@ -777,3 +777,60 @@ a { color: inherit; }
 }
 
 @media (max-width: 480px) { .map-server-toast { bottom: calc(var(--nav-height) + var(--safe-bottom) + 10px); width: calc(100vw - 16px); } }
+
+/* Event filters and destructive actions */
+.event-filter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  margin: 20px 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(10, 12, 15, 0.92);
+}
+
+.event-filter__button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #8b9099;
+  font-weight: 800;
+}
+
+.event-filter__button.is-active {
+  background: #f2f3f5;
+  color: #111317;
+}
+
+.event-list-card__content {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.small-action--danger,
+.danger-button {
+  border-color: rgba(239, 68, 68, 0.35) !important;
+  background: rgba(127, 29, 29, 0.22) !important;
+  color: #fecaca !important;
+}
+
+.danger-button {
+  width: 100%;
+  margin-top: 16px;
+}
+
+@media (max-width: 380px) {
+  .event-filter__button {
+    min-height: 38px;
+    font-size: 0.82rem;
+  }
+
+  .small-action--danger {
+    padding-inline: 9px;
+  }
+}

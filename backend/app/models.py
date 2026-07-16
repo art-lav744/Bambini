@@ -1,5 +1,10 @@
+from __future__ import annotations
+
+import re
 from datetime import datetime, timezone
 
+from pydantic import field_validator, model_validator
+from sqlalchemy import CheckConstraint, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -7,9 +12,50 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _clean_required(value: str, field_name: str, minimum: int, maximum: int) -> str:
+    normalized = (value or "").strip()
+    if len(normalized) < minimum:
+        raise ValueError(f"{field_name} must contain at least {minimum} non-space characters")
+    if len(normalized) > maximum:
+        raise ValueError(f"{field_name} must contain at most {maximum} characters")
+    return normalized
+
+
+def _clean_optional_url(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    return normalized or None
+
+
+def _normalize_email(value: str | None) -> str | None:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return None
+    if len(normalized) > 320 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized):
+        raise ValueError("Invalid email address")
+    return normalized
+
+
+def _require_aware_datetime(value: datetime | None, field_name: str) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must include a timezone offset")
+    return value.astimezone(timezone.utc)
+
+
 class ActivityBase(SQLModel):
     title: str = Field(min_length=3, max_length=120)
     description: str = Field(default="", max_length=1000)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def validate_title(cls, value):
+        return _clean_required(str(value or ""), "title", 3, 120)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def validate_description(cls, value):
+        return str(value or "").strip()
 
 
 class Activity(ActivityBase, table=True):
@@ -17,21 +63,45 @@ class Activity(ActivityBase, table=True):
     code: str = Field(index=True, unique=True, max_length=6)
     visibility: str = Field(default="public", max_length=20)
     image_url: str | None = Field(default=None, max_length=1000)
+    capacity: int | None = Field(default=None, ge=1, le=50)
+    pin_type: str = Field(default="default", max_length=30)
     start_time: datetime | None = None
+    end_time: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
 
 class ActivityCreate(ActivityBase):
-    user_id: int
+    # Retained only for backwards-compatible clients. The backend verifies it
+    # against the authenticated account and never trusts it as identity.
+    user_id: int | None = None
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     visibility: str = Field(default="public", min_length=6, max_length=20)
-    image_url: str | None = Field(default=None, max_length=1000)
+    image_url: str | None = Field(default=None, max_length=3_000_000)
+    capacity: int | None = Field(default=None, ge=1, le=50)
+    pin_type: str = Field(default="default", max_length=30)
     start_time: datetime
+    end_time: datetime | None = None
+
+    @field_validator("start_time", mode="after")
+    @classmethod
+    def validate_start_time(cls, value):
+        return _require_aware_datetime(value, "start_time")
+
+    @field_validator("end_time", mode="after")
+    @classmethod
+    def validate_end_time(cls, value):
+        return _require_aware_datetime(value, "end_time")
+
+    @model_validator(mode="after")
+    def validate_time_range(self):
+        if self.end_time is not None and self.end_time <= self.start_time:
+            raise ValueError("end_time must be later than start_time")
+        return self
 
 
 class ActivityJoin(SQLModel):
-    user_id: int
+    user_id: int | None = None
 
 
 class ActivityRead(ActivityBase):
@@ -39,7 +109,12 @@ class ActivityRead(ActivityBase):
     code: str
     visibility: str
     image_url: str | None
+    capacity: int | None
+    pin_type: str
+    participant_count: int = 0
+    participant_user_ids: list[int] = Field(default_factory=list)
     start_time: datetime | None
+    end_time: datetime | None
     created_at: datetime
     host_user_id: int | None = None
     latitude: float | None = None
@@ -47,20 +122,22 @@ class ActivityRead(ActivityBase):
 
 
 class EventOwner(SQLModel, table=True):
-    activity_id: int = Field(foreign_key="activity.id", primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True)
+    activity_id: int = Field(foreign_key="activity.id", primary_key=True, ondelete="CASCADE")
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
 
 
 class EventLocation(SQLModel, table=True):
-    activity_id: int = Field(foreign_key="activity.id", primary_key=True)
+    activity_id: int = Field(foreign_key="activity.id", primary_key=True, ondelete="CASCADE")
     latitude: float
     longitude: float
 
 
 class EventMember(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("activity_id", "user_id", name="uq_event_member"),)
+
     id: int | None = Field(default=None, primary_key=True)
-    activity_id: int = Field(foreign_key="activity.id", index=True)
-    user_id: int = Field(foreign_key="user.id", index=True)
+    activity_id: int = Field(foreign_key="activity.id", index=True, ondelete="CASCADE")
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
     joined_at: datetime = Field(default_factory=utc_now)
 
 
@@ -75,7 +152,7 @@ class EventParticipantRead(SQLModel):
 # Legacy tables retained so existing local databases remain readable.
 class Participant(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    activity_id: int = Field(foreign_key="activity.id", index=True)
+    activity_id: int = Field(foreign_key="activity.id", index=True, ondelete="CASCADE")
     name: str = Field(min_length=2, max_length=60)
     is_host: bool = False
     joined_at: datetime = Field(default_factory=utc_now)
@@ -93,10 +170,9 @@ class ParticipantRead(SQLModel):
     joined_at: datetime
 
 
-# Legacy checkpoint model retained for compatibility; new events use one EventLocation only.
 class Checkpoint(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    activity_id: int = Field(foreign_key="activity.id", index=True)
+    activity_id: int = Field(foreign_key="activity.id", index=True, ondelete="CASCADE")
     title: str = Field(min_length=2, max_length=120)
     description: str = Field(default="", max_length=500)
     latitude: float
@@ -107,9 +183,14 @@ class Checkpoint(SQLModel, table=True):
 class CheckpointCreate(SQLModel):
     title: str = Field(min_length=2, max_length=120)
     description: str = Field(default="", max_length=500)
-    latitude: float
-    longitude: float
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
     order_index: int = 0
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def validate_title(cls, value):
+        return _clean_required(str(value or ""), "title", 2, 120)
 
 
 class CheckpointRead(CheckpointCreate):
@@ -121,7 +202,8 @@ class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(min_length=2, max_length=60)
     email: str | None = Field(default=None, index=True, unique=True, max_length=320)
-    password_hash: str | None = Field(default=None, max_length=200)
+    password_hash: str | None = Field(default=None, max_length=300)
+    google_sub: str | None = Field(default=None, index=True, unique=True, max_length=255)
     photo_url: str | None = Field(default=None, max_length=1000)
     friend_code: str = Field(index=True, unique=True, max_length=8)
     location_sharing_enabled: bool = True
@@ -131,14 +213,39 @@ class User(SQLModel, table=True):
 
 class UserCreate(SQLModel):
     name: str = Field(min_length=2, max_length=60)
-    email: str | None = Field(default=None, max_length=320)
-    password: str | None = Field(default=None, min_length=6, max_length=128)
-    photo_url: str | None = Field(default=None, max_length=1000)
+    email: str = Field(min_length=5, max_length=320)
+    password: str = Field(min_length=8, max_length=128)
+    photo_url: str | None = Field(default=None, max_length=3_000_000)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, value):
+        return _clean_required(str(value or ""), "name", 2, 60)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, value):
+        normalized = _normalize_email(str(value or ""))
+        if normalized is None:
+            raise ValueError("Email is required")
+        return normalized
 
 
 class UserUpdate(SQLModel):
     name: str | None = Field(default=None, min_length=2, max_length=60)
-    photo_url: str | None = Field(default=None, max_length=1000)
+    photo_url: str | None = Field(default=None, max_length=3_000_000)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, value):
+        if value is None:
+            return None
+        return _clean_required(str(value), "name", 2, 60)
+
+    @field_validator("photo_url", mode="before")
+    @classmethod
+    def validate_photo_url(cls, value):
+        return _clean_optional_url(value)
 
 
 class UserRead(SQLModel):
@@ -151,23 +258,52 @@ class UserRead(SQLModel):
     created_at: datetime
 
 
-
-
 class UserLogin(SQLModel):
     email: str = Field(min_length=5, max_length=320)
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, value):
+        normalized = _normalize_email(str(value or ""))
+        if normalized is None:
+            raise ValueError("Email is required")
+        return normalized
+
+
+class GoogleLogin(SQLModel):
+    credential: str = Field(min_length=20, max_length=10_000)
+
+
+class AuthRead(SQLModel):
+    token: str
+    user: UserRead
+
+
+class AuthSession(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    token_hash: str = Field(index=True, unique=True, max_length=64)
+    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime
 
 
 class Friendship(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("pair_key", name="uq_friendship_pair"),
+        CheckConstraint("requester_id != addressee_id", name="ck_friendship_not_self"),
+    )
+
     id: int | None = Field(default=None, primary_key=True)
-    requester_id: int = Field(foreign_key="user.id", index=True)
-    addressee_id: int = Field(foreign_key="user.id", index=True)
+    requester_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    addressee_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    pair_key: str = Field(index=True, max_length=50)
     status: str = Field(default="pending", max_length=20)
     created_at: datetime = Field(default_factory=utc_now)
 
 
 class FriendRequestCreate(SQLModel):
-    friend_code: str = Field(min_length=4, max_length=8)
+    friend_code: str = Field(min_length=8, max_length=8)
 
 
 class FriendConnectionRead(SQLModel):
@@ -182,7 +318,7 @@ class FriendConnectionRead(SQLModel):
 
 
 class UserLocation(SQLModel, table=True):
-    user_id: int = Field(foreign_key="user.id", primary_key=True)
+    user_id: int = Field(foreign_key="user.id", primary_key=True, ondelete="CASCADE")
     latitude: float
     longitude: float
     accuracy: float | None = None
@@ -192,7 +328,7 @@ class UserLocation(SQLModel, table=True):
 class LocationUpdate(SQLModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-    accuracy: float | None = Field(default=None, ge=0)
+    accuracy: float | None = Field(default=None, ge=0, le=10_000)
 
 
 class LocationSharingUpdate(SQLModel):
@@ -213,3 +349,5 @@ class FriendLocationRead(SQLModel):
     updated_at: datetime
     age_seconds: int
     presence: str
+    friend_code: str | None = None
+    friendship_status: str | None = None

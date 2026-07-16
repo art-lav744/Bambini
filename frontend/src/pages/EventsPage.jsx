@@ -23,14 +23,17 @@ export default function EventsPage() {
   const [error, setError] = useState("");
 
   async function loadEvents(profile) {
-    const [mine, friends, publicData] = await Promise.all([
+    const results = await Promise.allSettled([
       api.getUserActivities(profile.id),
       api.getFriendActivities(profile.id),
       api.getPublicActivities(),
     ]);
-    setMyEvents(mine);
-    setFriendEvents(friends);
-    setPublicEvents(publicData);
+    const [mine, friends, publicData] = results;
+    if (mine.status === "fulfilled") setMyEvents(mine.value);
+    if (friends.status === "fulfilled") setFriendEvents(friends.value);
+    if (publicData.status === "fulfilled") setPublicEvents(publicData.value);
+    const failure = results.find((result) => result.status === "rejected");
+    setError(failure ? `Частину списків не оновлено: ${failure.reason?.message || "помилка сервера"}` : "");
   }
 
   useEffect(() => {

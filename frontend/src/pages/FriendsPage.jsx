@@ -3,7 +3,7 @@ import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 
-const FRIENDS_POLL_INTERVAL_MS = 3000;
+const FRIENDS_POLL_INTERVAL_MS = 10000;
 
 function Avatar({ user }) {
   const initials = user.name.trim().slice(0, 2).toUpperCase();
@@ -25,16 +25,15 @@ export default function FriendsPage() {
   const [deletingId, setDeletingId] = useState(null);
 
   const loadData = useCallback(async (profile, quiet = false) => {
-    try {
-      const [connections, liveLocations] = await Promise.all([
-        api.getFriends(profile.id),
-        api.getFriendLocations(profile.id),
-      ]);
-      setFriends(connections);
-      setLocations(liveLocations);
-      if (!quiet) setError("");
-    } catch (err) {
-      if (!quiet) setError(err.message);
+    const [connections, liveLocations] = await Promise.allSettled([
+      api.getFriends(profile.id),
+      api.getFriendLocations(profile.id),
+    ]);
+    if (connections.status === "fulfilled") setFriends(connections.value);
+    if (liveLocations.status === "fulfilled") setLocations(liveLocations.value);
+    if (!quiet) {
+      const failure = [connections, liveLocations].find((result) => result.status === "rejected");
+      setError(failure ? failure.reason?.message || "Не вдалося оновити дані друзів" : "");
     }
   }, []);
 
@@ -47,7 +46,9 @@ export default function FriendsPage() {
         if (!active) return;
         setUser(profile);
         await loadData(profile);
-        intervalId = window.setInterval(() => loadData(profile, true), FRIENDS_POLL_INTERVAL_MS);
+        intervalId = window.setInterval(() => {
+          if (document.visibilityState === "visible") loadData(profile, true);
+        }, FRIENDS_POLL_INTERVAL_MS);
       })
       .catch((err) => active && setError(err.message));
 
@@ -90,16 +91,16 @@ export default function FriendsPage() {
     }
   }
 
-  async function removeFriend(friend) {
+  async function removeFriend(friend, actionLabel = "Видалити") {
     if (!user || deletingId) return;
-    if (!window.confirm(`Видалити ${friend.name} з друзів?`)) return;
+    if (!window.confirm(`${actionLabel} запит/зв’язок із ${friend.name}?`)) return;
 
     setError("");
     setMessage("");
     setDeletingId(friend.friendship_id);
     try {
       await api.deleteFriend(user.id, friend.friendship_id);
-      setMessage(`${friend.name} видалено з друзів`);
+      setMessage(`Дію для ${friend.name} виконано`);
       await loadData(user);
     } catch (err) {
       setError(err.message);
@@ -151,9 +152,10 @@ export default function FriendsPage() {
                     <strong>{friend.name}</strong>
                     <span>Хоче додати вас у друзі</span>
                   </div>
-                  <button className="small-action" type="button" onClick={() => accept(friend.friendship_id)}>
-                    Прийняти
-                  </button>
+                  <div className="friend-row__actions">
+                    <button className="small-action" type="button" onClick={() => accept(friend.friendship_id)}>Прийняти</button>
+                    <button className="small-action small-action--danger" type="button" onClick={() => removeFriend(friend, "Відхилити")}>Відхилити</button>
+                  </div>
                 </article>
               ))}
             </div>
@@ -204,9 +206,15 @@ export default function FriendsPage() {
         {outgoing.length > 0 && (
           <section className="friend-section muted-section">
             <h2>Очікують відповіді</h2>
-            {outgoing.map((friend) => (
-              <p key={friend.friendship_id}>{friend.name}</p>
-            ))}
+            <div className="friend-list">
+              {outgoing.map((friend) => (
+                <article className="friend-row" key={friend.friendship_id}>
+                  <Avatar user={friend} />
+                  <div className="friend-row__main"><strong>{friend.name}</strong><span>Запит очікує відповіді</span></div>
+                  <button className="small-action small-action--danger" type="button" onClick={() => removeFriend(friend, "Скасувати")}>Скасувати</button>
+                </article>
+              ))}
+            </div>
           </section>
         )}
 

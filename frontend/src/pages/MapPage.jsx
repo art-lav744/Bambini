@@ -1,27 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../api.js";
+import { ApiError, api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import MapLibreMap from "../components/MapLibreMap.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 
-const LOCATION_UPLOAD_INTERVAL_MS = 5000;
-const LOCATION_HEARTBEAT_MS = 15000;
-const LIVE_DATA_POLL_INTERVAL_MS = 3000;
-const SERVER_RETRY_INTERVAL_MS = 5000;
+const LOCATION_UPLOAD_INTERVAL_MS = 8000;
+const LOCATION_HEARTBEAT_MS = 30000;
+const LOCATION_POLL_INTERVAL_MS = 8000;
+const EVENT_POLL_INTERVAL_MS = 20000;
+const SERVER_RETRY_INTERVAL_MS = 10000;
 
 function geolocationMessage(error) {
-  if (error?.code === 1) {
-    return "Доступ до геолокації заборонено. Дозвольте доступ до місцезнаходження для цього сайту в налаштуваннях браузера.";
-  }
-
-  if (error?.code === 2) {
-    return "Не вдалося визначити позицію. Перевірте, чи увімкнена геолокація на телефоні.";
-  }
-
-  if (error?.code === 3) {
-    return "Визначення позиції зайняло надто багато часу. Спробуйте ще раз.";
-  }
-
+  if (error?.code === 1) return "Доступ до геолокації заборонено. Дозвольте його в налаштуваннях браузера.";
+  if (error?.code === 2) return "Не вдалося визначити позицію. Перевірте геолокацію на телефоні.";
+  if (error?.code === 3) return "Визначення позиції зайняло надто багато часу.";
   return "Не вдалося отримати геолокацію.";
 }
 
@@ -39,15 +31,15 @@ function locationVisibility(user) {
   return user.location_visibility || (user.location_sharing_enabled ? "friends" : "none");
 }
 
-function localFallbackUser() {
-  const name = (localStorage.getItem("player_name") || "Guest").trim() || "Guest";
+function cachedUser() {
+  const id = Number(localStorage.getItem("outdoor_user_id"));
   return {
-    id: null,
-    name,
+    id: Number.isInteger(id) && id > 0 ? id : null,
+    name: (localStorage.getItem("player_name") || "Користувач").trim() || "Користувач",
     photo_url: null,
     location_visibility: "none",
     location_sharing_enabled: false,
-    is_local_fallback: true,
+    is_cached: true,
   };
 }
 
@@ -58,243 +50,198 @@ export default function MapPage() {
   const [eventPins, setEventPins] = useState([]);
   const [locationError, setLocationError] = useState("");
   const [serverError, setServerError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const [serverOnline, setServerOnline] = useState(false);
 
   const lastUploadAtRef = useRef(0);
   const watchIdRef = useRef(null);
   const latestLocationRef = useRef(null);
+  const actionMessageTimerRef = useRef(null);
+
+  const showActionMessage = useCallback((message) => {
+    window.clearTimeout(actionMessageTimerRef.current);
+    setActionMessage(message);
+    actionMessageTimerRef.current = window.setTimeout(() => setActionMessage(""), 3500);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(actionMessageTimerRef.current), []);
 
   const loadServerUser = useCallback(async () => {
     try {
-      await api.health();
       const profile = await ensureCurrentUser();
       setUser(profile);
       setServerOnline(true);
       setServerError("");
-
-      try {
-        const events = await api.getUserActivities(profile.id);
-        setEventPins(events);
-      } catch (error) {
-        setServerError(error.message);
-      }
-
       return profile;
     } catch (error) {
       setServerOnline(false);
-      setServerError(
-        "Backend недоступний. Запустіть FastAPI на цьому ПК; карта продовжить працювати локально."
-      );
-      setUser((current) => current || localFallbackUser());
+      setServerError(error instanceof ApiError && error.status === 401
+        ? error.message
+        : "Сервер тимчасово недоступний. Сесія збережена, карта та GPS продовжують працювати локально.");
+      setUser((current) => current || cachedUser());
       return null;
     }
   }, []);
 
   useEffect(() => {
     let active = true;
-
     loadServerUser();
     const retryId = window.setInterval(() => {
-      if (active && !serverOnline) loadServerUser();
+      if (active && document.visibilityState === "visible" && !serverOnline) loadServerUser();
     }, SERVER_RETRY_INTERVAL_MS);
-
-    return () => {
-      active = false;
-      window.clearInterval(retryId);
-    };
+    return () => { active = false; window.clearInterval(retryId); };
   }, [loadServerUser, serverOnline]);
 
-  const uploadLocation = useCallback(
-    async (location, force = false) => {
-      if (!serverOnline || !user?.id || locationVisibility(user) === "none" || !location) {
-        return;
-      }
+  const uploadLocation = useCallback(async (location, force = false) => {
+    if (!serverOnline || !user?.id || locationVisibility(user) === "none" || !location) return;
+    const now = Date.now();
+    if (!force && now - lastUploadAtRef.current < LOCATION_UPLOAD_INTERVAL_MS) return;
+    lastUploadAtRef.current = now;
+    try {
+      await api.updateLocation(user.id, {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracy: location.accuracy,
+      });
+      setServerOnline(true);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 0) setServerOnline(false);
+      setServerError("Позиція залишилась на пристрої та синхронізується після відновлення мережі.");
+    }
+  }, [serverOnline, user]);
 
-      const now = Date.now();
-      if (!force && now - lastUploadAtRef.current < LOCATION_UPLOAD_INTERVAL_MS) {
-        return;
-      }
+  const joinNearbyEvent = useCallback(async (event) => {
+    if (!user?.id) return;
+    try {
+      const joined = await api.joinActivity(event.code, user.id);
+      setEventPins((current) => current.map((item) => item.id === joined.id ? joined : item));
+      showActionMessage(`Ви приєдналися до «${event.title}»`);
+      return joined;
+    } catch (error) {
+      setServerError(error.message);
+      throw error;
+    }
+  }, [showActionMessage, user]);
 
-      lastUploadAtRef.current = now;
+  const addVisibleUserToFriends = useCallback(async (visibleUser) => {
+    if (!user?.id || !visibleUser?.friend_code) return;
+    try {
+      const request = await api.sendFriendRequest(user.id, visibleUser.friend_code);
+      setVisibleLocations((current) => current.map((item) =>
+        item.user_id === visibleUser.user_id
+          ? { ...item, friendship_status: "pending" }
+          : item
+      ));
+      showActionMessage(`Запит для ${visibleUser.name} надіслано`);
+      return request;
+    } catch (error) {
+      setServerError(error.message);
+      throw error;
+    }
+  }, [showActionMessage, user]);
 
-      try {
-        await api.updateLocation(user.id, {
-          latitude: location.latitude,
-          longitude: location.longitude,
-          accuracy: location.accuracy,
-        });
-        setServerError("");
-      } catch {
-        setServerOnline(false);
-        setServerError(
-          "Зв’язок із backend втрачено. Ваша позиція залишається видимою локально й синхронізується після відновлення сервера."
-        );
-      }
-    },
-    [serverOnline, user]
-  );
+  const handleLocationFound = useCallback((location, forceUpload = false) => {
+    latestLocationRef.current = location;
+    setCurrentLocation(location);
+    setLocationError("");
+    uploadLocation(location, forceUpload);
+  }, [uploadLocation]);
 
-  const handleLocationFound = useCallback(
-    (location, forceUpload = false) => {
-      latestLocationRef.current = location;
-      setCurrentLocation(location);
-      setLocationError("");
-      uploadLocation(location, forceUpload);
-    },
-    [uploadLocation]
-  );
-
-  // GPS is independent from backend availability. The current user marker can
-  // keep working locally even while the API is temporarily unavailable.
   useEffect(() => {
-    if (!user) return undefined;
-    if (!window.isSecureContext || !navigator.geolocation) return undefined;
-
+    if (!user || !window.isSecureContext || !navigator.geolocation) return undefined;
     let disposed = false;
-
-    const onPosition = (position, forceUpload = false) => {
-      if (disposed) return;
-      handleLocationFound(positionToLocation(position), forceUpload);
-    };
-
-    const onError = (error) => {
-      if (!disposed) setLocationError(geolocationMessage(error));
-    };
-
+    const onPosition = (position, force = false) => !disposed && handleLocationFound(positionToLocation(position), force);
+    const onError = (error) => !disposed && setLocationError(geolocationMessage(error));
     const clearWatch = () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    };
+    const start = () => {
+      if (document.visibilityState !== "visible") return;
+      navigator.geolocation.getCurrentPosition((position) => onPosition(position, true), onError, {
+        enableHighAccuracy: true, maximumAge: 0, timeout: 20000,
+      });
+      if (watchIdRef.current === null) {
+        watchIdRef.current = navigator.geolocation.watchPosition((position) => onPosition(position), onError, {
+          enableHighAccuracy: true, maximumAge: 5000, timeout: 30000,
+        });
       }
     };
-
-    const requestFreshPosition = () => {
-      navigator.geolocation.getCurrentPosition(
-        (position) => onPosition(position, true),
-        onError,
-        {
-          enableHighAccuracy: true,
-          maximumAge: 0,
-          timeout: 20000,
-        }
-      );
+    const visibilityChanged = () => {
+      if (document.visibilityState === "visible") { clearWatch(); start(); }
+      else clearWatch();
     };
-
-    const startWatch = () => {
-      if (watchIdRef.current !== null) return;
-
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        (position) => onPosition(position, false),
-        onError,
-        {
-          enableHighAccuracy: true,
-          maximumAge: 3000,
-          timeout: 30000,
-        }
-      );
-    };
-
-    const restartTracking = () => {
-      if (document.visibilityState !== "visible") return;
-      clearWatch();
-      requestFreshPosition();
-      startWatch();
-    };
-
-    requestFreshPosition();
-    startWatch();
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") restartTracking();
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("online", restartTracking);
-
+    start();
+    document.addEventListener("visibilitychange", visibilityChanged);
+    window.addEventListener("online", start);
     return () => {
       disposed = true;
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("online", restartTracking);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+      window.removeEventListener("online", start);
       clearWatch();
     };
   }, [handleLocationFound, user]);
 
   useEffect(() => {
     if (!serverOnline || !user?.id || locationVisibility(user) === "none") return undefined;
-
     const heartbeatId = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      if (latestLocationRef.current) {
-        uploadLocation(latestLocationRef.current, true);
-      }
+      if (document.visibilityState === "visible" && latestLocationRef.current) uploadLocation(latestLocationRef.current, true);
     }, LOCATION_HEARTBEAT_MS);
-
     return () => window.clearInterval(heartbeatId);
   }, [serverOnline, uploadLocation, user]);
 
   useEffect(() => {
     if (!serverOnline || !user?.id) return undefined;
     let active = true;
-
-    async function refreshLiveData() {
+    const refreshLocations = async () => {
+      if (document.visibilityState !== "visible") return;
       try {
-        const [locations, events] = await Promise.all([
-          api.getVisibleLocations(user.id),
-          api.getUserActivities(user.id),
-        ]);
-
-        if (active) {
-          setVisibleLocations(locations);
-          setEventPins(events);
-          setServerError("");
-        }
-      } catch {
-        if (active) {
-          setServerOnline(false);
-          setServerError("Втрачено з’єднання з backend. Повторне підключення виконується автоматично.");
-        }
+        const locations = await api.getVisibleLocations(user.id);
+        if (active) { setVisibleLocations(locations); setServerError(""); }
+      } catch (error) {
+        if (active) setServerError(`Локації не оновлено: ${error.message}`);
       }
-    }
-
-    refreshLiveData();
-    const intervalId = window.setInterval(refreshLiveData, LIVE_DATA_POLL_INTERVAL_MS);
-
-    return () => {
-      active = false;
-      window.clearInterval(intervalId);
     };
+    refreshLocations();
+    const id = window.setInterval(refreshLocations, LOCATION_POLL_INTERVAL_MS);
+    return () => { active = false; window.clearInterval(id); };
+  }, [serverOnline, user]);
+
+  useEffect(() => {
+    if (!serverOnline || !user?.id) return undefined;
+    let active = true;
+    const refreshEvents = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const events = await api.getVisibleActivities();
+        if (active) setEventPins(events);
+      } catch (error) {
+        if (active) setServerError(`Події не оновлено: ${error.message}`);
+      }
+    };
+    refreshEvents();
+    const id = window.setInterval(refreshEvents, EVENT_POLL_INTERVAL_MS);
+    return () => { active = false; window.clearInterval(id); };
   }, [serverOnline, user]);
 
   const visibility = locationVisibility(user);
   const locationStatus = currentLocation
     ? `${visibleLocations.length} людей • ${eventPins.length} подій${serverOnline ? "" : " • локально"}`
-    : !window.isSecureContext
-      ? "Карта доступна • GPS потребує HTTPS"
-      : visibility === "none" && user?.id
-        ? "Позиція лише на вашому пристрої"
+    : !window.isSecureContext ? "Карта доступна • GPS потребує HTTPS"
+      : visibility === "none" && user?.id ? "Позиція лише на вашому пристрої"
         : "Очікуємо геолокацію...";
 
   return (
     <main className="fullscreen-map-page">
-      <MapLibreMap
-        currentUser={user}
-        currentLocation={currentLocation}
-        friendLocations={visibleLocations}
-        eventPins={eventPins}
-        onLocationFound={handleLocationFound}
-        enableLocation
-      />
-
+      <MapLibreMap currentUser={user} currentLocation={currentLocation} friendLocations={visibleLocations}
+        eventPins={eventPins} onLocationFound={handleLocationFound} onJoinEvent={joinNearbyEvent}
+        onAddFriend={addVisibleUserToFriends} enableLocation />
       <div className="map-brand-card map-user-card">
         <span className={`map-brand-card__dot${currentLocation ? " is-live" : ""}`} />
-        <div>
-          <strong>{user?.name || "Outdoor Together"}</strong>
-          <span>{locationStatus}</span>
-        </div>
+        <div><strong>{user?.name || "Outdoor Together"}</strong><span>{locationStatus}</span></div>
       </div>
-
       {serverError && <div className="map-server-toast">{serverError}</div>}
-      {locationError && <div className="map-global-toast">{locationError}</div>}
+      {(locationError || actionMessage) && <div className="map-global-toast">{locationError || actionMessage}</div>}
       <BottomNav />
     </main>
   );

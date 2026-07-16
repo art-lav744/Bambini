@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 
 const DEFAULT_CENTER = [24.7111, 48.9226];
@@ -53,6 +53,8 @@ export default function EventLocationPicker({ value, onChange }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
+  const [error, setError] = useState("");
+  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return undefined;
@@ -107,7 +109,16 @@ export default function EventLocationPicker({ value, onChange }) {
   }, [value]);
 
   function useCurrentLocation() {
-    if (!navigator.geolocation) return;
+    setError("");
+    if (!window.isSecureContext) {
+      setError("Геолокація працює лише через HTTPS або localhost.");
+      return;
+    }
+    if (!navigator.geolocation) {
+      setError("Цей браузер не підтримує геолокацію.");
+      return;
+    }
+    setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const next = {
@@ -115,23 +126,30 @@ export default function EventLocationPicker({ value, onChange }) {
           longitude: position.coords.longitude,
         };
         onChange(next);
+        setLocating(false);
         mapRef.current?.flyTo({
           center: [next.longitude, next.latitude],
           zoom: Math.min(MAX_ZOOM, 16),
           duration: 700,
         });
       },
-      () => {},
-      { enableHighAccuracy: true, timeout: 15000 }
+      (geoError) => {
+        setLocating(false);
+        if (geoError.code === 1) setError("Доступ до геолокації заборонено в браузері.");
+        else if (geoError.code === 2) setError("Телефон не зміг визначити позицію.");
+        else setError("Час очікування геолокації вичерпано.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }
 
   return (
     <div className="event-location-picker-wrap">
       <div ref={containerRef} className="event-location-picker" />
-      <button className="event-location-use-me" type="button" onClick={useCurrentLocation}>
-        Використати мою позицію
+      <button className="event-location-use-me" type="button" onClick={useCurrentLocation} disabled={locating}>
+        {locating ? "Визначення..." : "Використати мою позицію"}
       </button>
+      {error && <p className="event-location-error" role="alert">{error}</p>}
     </div>
   );
 }

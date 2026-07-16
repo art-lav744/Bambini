@@ -1,22 +1,26 @@
-import { useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
-import CreatePage from "./pages/CreatePage.jsx";
-import EventsPage from "./pages/EventsPage.jsx";
-import FriendsPage from "./pages/FriendsPage.jsx";
-import JoinPage from "./pages/JoinPage.jsx";
-import LoginPage from "./pages/LoginPage.jsx";
-import MapPage from "./pages/MapPage.jsx";
-import ProfilePage from "./pages/ProfilePage.jsx";
-import RoomPage from "./pages/RoomPage.jsx";
+import { hasStoredSession, subscribeToAuthChanges } from "./userSession.js";
 
-function hasStoredUser() {
-  const storedId = Number(localStorage.getItem("outdoor_user_id"));
-  return Number.isInteger(storedId) && storedId > 0;
+const CreatePage = lazy(() => import("./pages/CreatePage.jsx"));
+const EventsPage = lazy(() => import("./pages/EventsPage.jsx"));
+const FriendsPage = lazy(() => import("./pages/FriendsPage.jsx"));
+const JoinPage = lazy(() => import("./pages/JoinPage.jsx"));
+const LoginPage = lazy(() => import("./pages/LoginPage.jsx"));
+const MapPage = lazy(() => import("./pages/MapPage.jsx"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage.jsx"));
+const RoomPage = lazy(() => import("./pages/RoomPage.jsx"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage.jsx"));
+
+function Protected({ authenticated, children }) {
+  return authenticated ? children : <Navigate to="/login" replace />;
 }
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => hasStoredUser());
+  const [isAuthenticated, setIsAuthenticated] = useState(hasStoredSession);
   const navigate = useNavigate();
+
+  useEffect(() => subscribeToAuthChanges(setIsAuthenticated), []);
 
   function handleAuthenticated(user) {
     if (user) {
@@ -26,16 +30,19 @@ export default function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage onAuthenticated={handleAuthenticated} />} />
-      <Route path="/" element={isAuthenticated ? <Navigate to="/map" replace /> : <Navigate to="/login" replace />} />
-      <Route path="/map" element={isAuthenticated ? <MapPage /> : <Navigate to="/login" replace />} />
-      <Route path="/friends" element={isAuthenticated ? <FriendsPage /> : <Navigate to="/login" replace />} />
-      <Route path="/events" element={isAuthenticated ? <EventsPage /> : <Navigate to="/login" replace />} />
-      <Route path="/profile" element={isAuthenticated ? <ProfilePage /> : <Navigate to="/login" replace />} />
-      <Route path="/create" element={isAuthenticated ? <CreatePage /> : <Navigate to="/login" replace />} />
-      <Route path="/join" element={isAuthenticated ? <JoinPage /> : <Navigate to="/login" replace />} />
-      <Route path="/room/:code" element={isAuthenticated ? <RoomPage /> : <Navigate to="/login" replace />} />
-    </Routes>
+    <Suspense fallback={<main className="loading-screen">Завантаження…</main>}>
+      <Routes>
+        <Route path="/login" element={isAuthenticated ? <Navigate to="/map" replace /> : <LoginPage onAuthenticated={handleAuthenticated} />} />
+        <Route path="/" element={<Navigate to={isAuthenticated ? "/map" : "/login"} replace />} />
+        <Route path="/map" element={<Protected authenticated={isAuthenticated}><MapPage /></Protected>} />
+        <Route path="/friends" element={<Protected authenticated={isAuthenticated}><FriendsPage /></Protected>} />
+        <Route path="/events" element={<Protected authenticated={isAuthenticated}><EventsPage /></Protected>} />
+        <Route path="/profile" element={<Protected authenticated={isAuthenticated}><ProfilePage /></Protected>} />
+        <Route path="/create" element={<Protected authenticated={isAuthenticated}><CreatePage /></Protected>} />
+        <Route path="/join" element={<Protected authenticated={isAuthenticated}><JoinPage /></Protected>} />
+        <Route path="/room/:code" element={<Protected authenticated={isAuthenticated}><RoomPage /></Protected>} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </Suspense>
   );
 }

@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import EventLocationPicker from "../components/EventLocationPicker.jsx";
 import { ensureCurrentUser } from "../userSession.js";
-import { defaultEventStartTime } from "../eventFormat.js";
+import { defaultEventEndTime, defaultEventStartTime, localDateTimeToUtc } from "../eventFormat.js";
 import EventPinPreview, { EVENT_PINS } from "../components/EventPinPreview.jsx";
 
 export default function CreatePage() {
@@ -17,6 +17,7 @@ export default function CreatePage() {
     capacity: null,
     pin_type: "default",
     start_time: defaultEventStartTime(),
+    end_time: defaultEventEndTime(),
   });
   const [location, setLocation] = useState(null);
   const [error, setError] = useState("");
@@ -70,6 +71,8 @@ export default function CreatePage() {
     try {
       const activity = await api.createActivity({
         ...form,
+        start_time: localDateTimeToUtc(form.start_time),
+        end_time: localDateTimeToUtc(form.end_time),
         user_id: user.id,
         latitude: location.latitude,
         longitude: location.longitude,
@@ -120,6 +123,18 @@ export default function CreatePage() {
               type="datetime-local"
               name="start_time"
               value={form.start_time}
+              onChange={updateField}
+              required
+            />
+          </label>
+
+          <label>
+            Час завершення
+            <input
+              type="datetime-local"
+              name="end_time"
+              value={form.end_time}
+              min={form.start_time}
               onChange={updateField}
               required
             />

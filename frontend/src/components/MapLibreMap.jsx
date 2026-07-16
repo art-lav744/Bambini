@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
+import { getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers } from "../mapMath.js";
 
 const DEFAULT_CENTER = [24.7111, 48.9226];
 const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
@@ -7,7 +9,11 @@ const MAP_VIEW_STORAGE_KEY = "bambini:map:view:v2";
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 21;
 const DEFAULT_ZOOM = 13;
-const MARKER_COLLISION_DISTANCE = 62;
+const MAX_EVENT_ORBIT_USERS = 8;
+const MIN_EVENT_VISIBLE_ZOOM = 8.5;
+const EVENT_PIN_RADIUS_PX = 27;
+const EVENT_USER_RADIUS_PX = 13;
+const EVENT_ORBIT_OVERLAP_PX = 4;
 
 function loadSavedMapView() {
   try {
@@ -209,6 +215,28 @@ function markerScaleForZoom(zoom) {
   return 0.62 + ((zoom - MIN_ZOOM) / (14 - MIN_ZOOM)) * 0.38;
 }
 
+function eventMarkerScaleForZoom(zoom) {
+  if (zoom < MIN_EVENT_VISIBLE_ZOOM) return 0;
+  if (zoom >= 15) return 1;
+
+  const progress =
+    (zoom - MIN_EVENT_VISIBLE_ZOOM) / (15 - MIN_EVENT_VISIBLE_ZOOM);
+  return 0.48 + progress * 0.52;
+}
+
+function eventOrbitRadiusForZoom(zoom) {
+  const eventScale = eventMarkerScaleForZoom(zoom);
+  const userScale = markerScaleForZoom(zoom);
+
+  // Keep the small user circles touching the event pin and overlapping its
+  // edge by a few pixels at every zoom level.
+  return Math.max(18,
+    EVENT_PIN_RADIUS_PX * eventScale +
+    EVENT_USER_RADIUS_PX * userScale -
+    EVENT_ORBIT_OVERLAP_PX
+  );
+}
+
 function applyMarkerVisualScale(entries, zoom) {
   const scale = markerScaleForZoom(zoom);
   for (const entry of entries) {
@@ -216,70 +244,123 @@ function applyMarkerVisualScale(entries, zoom) {
   }
 }
 
-function declutterMarkers(map, entries) {
-  if (!map || entries.length < 2) {
-    entries.forEach((entry) => entry.marker.setOffset([0, 0]));
-    return;
+function applyEventMarkerVisibility(eventEntries, zoom) {
+  const visible = zoom >= MIN_EVENT_VISIBLE_ZOOM;
+  const scale = eventMarkerScaleForZoom(zoom);
+
+  for (const entry of eventEntries) {
+    entry.isVisible = visible;
+    entry.element.style.visibility = visible ? "visible" : "hidden";
+    entry.element.style.pointerEvents = visible ? "auto" : "none";
+    entry.element.style.setProperty(
+      "--map-marker-scale",
+      visible ? scale.toFixed(3) : "0"
+    );
+  }
+}
+
+function eventMarkerKey(event) {
+  return String(event.code || event.id || `${event.longitude},${event.latitude}`);
+}
+
+function eventSignature(event) {
+  return [
+    event.title,
+    event.latitude,
+    event.longitude,
+    event.pin_type,
+    event.participant_count,
+    event.capacity,
+    event.image_url,
+    event.visibility,
+    event.start_time,
+    event.description,
+    (event.participant_user_ids || []).join(","),
+  ].join("|");
+}
+
+function createEventAttendeeBadge(entry) {
+  const badge = document.createElement("span");
+  badge.className = [
+    "event-map-marker__attendee",
+    entry.isCurrent ? "is-current" : "",
+  ].filter(Boolean).join(" ");
+  badge.title = entry.isOverflow ? `Ще ${entry.overflowCount} учасників` : entry.isCurrent ? "Ви" : entry.user?.name || "Учасник";
+
+  if (entry.isOverflow) {
+    badge.classList.add("is-overflow");
+    badge.textContent = `+${entry.overflowCount}`;
+  } else if (entry.user?.photo_url) {
+    const image = document.createElement("img");
+    image.src = entry.user.photo_url;
+    image.alt = "";
+    image.referrerPolicy = "no-referrer";
+    image.onerror = () => {
+      image.remove();
+      badge.textContent = initials(entry.user?.name);
+    };
+    badge.appendChild(image);
+  } else {
+    badge.textContent = initials(entry.user?.name);
   }
 
-  entries.forEach((entry) => entry.marker.setOffset([0, 0]));
+  return badge;
+}
 
-  const projected = entries
-    .map((entry) => ({
-      ...entry,
-      point: map.project(entry.marker.getLngLat()),
-    }))
-    .sort((a, b) => {
-      const priorityA = a.isCurrent ? 0 : a.kind === "user" ? 1 : 2;
-      const priorityB = b.isCurrent ? 0 : b.kind === "user" ? 1 : 2;
-      return priorityA - priorityB;
-    });
+function syncEventOrbit(eventEntry, matchingUsers, offsets, userScale) {
+  const orbitElement = eventEntry.orbitElement;
+  if (!orbitElement) return;
 
-  const groups = [];
-  for (const item of projected) {
-    let target = null;
-    for (const group of groups) {
-      const dx = item.point.x - group.center.x;
-      const dy = item.point.y - group.center.y;
-      if (Math.hypot(dx, dy) < MARKER_COLLISION_DISTANCE) {
-        target = group;
-        break;
-      }
-    }
+  const signature = matchingUsers
+    .map((entry) => entry.isOverflow ? `overflow:${entry.overflowCount}` : `${entry.userId}:${entry.user?.photo_url || ""}:${entry.user?.name || ""}:${entry.isCurrent}`)
+    .join("|");
 
-    if (!target) {
-      groups.push({ center: item.point, items: [item] });
+  if (eventEntry.orbitSignature !== signature) {
+    orbitElement.replaceChildren(...matchingUsers.map(createEventAttendeeBadge));
+    eventEntry.orbitSignature = signature;
+  }
+
+  orbitElement.hidden = matchingUsers.length === 0;
+  Array.from(orbitElement.children).forEach((badge, index) => {
+    const [x, y] = offsets[index] || [0, 0];
+    badge.style.setProperty("--event-attendee-x", `${x}px`);
+    badge.style.setProperty("--event-attendee-y", `${y}px`);
+    badge.style.setProperty("--event-attendee-scale", userScale.toFixed(3));
+  });
+}
+
+function layoutEventUserGroups(eventEntries, userEntries, zoom) {
+  const usersHiddenByAnEvent = new Set();
+  const orbitRadius = eventOrbitRadiusForZoom(zoom);
+  const userScale = markerScaleForZoom(zoom);
+
+  for (const eventEntry of eventEntries) {
+    if (eventEntry.isVisible === false) {
+      syncEventOrbit(eventEntry, [], [], userScale);
       continue;
     }
 
-    target.items.push(item);
-    const count = target.items.length;
-    target.center = {
-      x: target.items.reduce((sum, current) => sum + current.point.x, 0) / count,
-      y: target.items.reduce((sum, current) => sum + current.point.y, 0) / count,
-    };
-  }
+    const eventLngLat = eventEntry.marker.getLngLat();
+    const eventCoords = [eventLngLat.lng, eventLngLat.lat];
+    const participantIds = new Set(
+      (eventEntry.event?.participant_user_ids || []).map(Number).filter(Number.isFinite)
+    );
 
-  for (const group of groups) {
-    if (group.items.length < 2) continue;
+    const usersAtEvent = userEntries
+      .filter((entry) => {
+        if (!Number.isFinite(entry.userId) || !participantIds.has(entry.userId) || !entry.realLngLat) return false;
+        return isWithinEventGeofence(eventCoords, entry.realLngLat, entry.user?.accuracy);
+      })
+      .sort((a, b) => (a.isCurrent === b.isCurrent ? 0 : a.isCurrent ? -1 : 1));
 
-    const currentIndex = group.items.findIndex((item) => item.isCurrent);
-    const centered = currentIndex >= 0
-      ? group.items.splice(currentIndex, 1)[0]
-      : group.items.shift();
-
-    centered.marker.setOffset([0, 0]);
-
-    const count = group.items.length;
-    const radius = Math.min(56, 28 + count * 6);
-    group.items.forEach((item, index) => {
-      const angle = -Math.PI / 2 + (Math.PI * 2 * index) / Math.max(count, 1);
-      item.marker.setOffset([
-        Math.round(Math.cos(angle) * radius),
-        Math.round(Math.sin(angle) * radius),
-      ]);
+    const visibleBadges = limitEventOrbitUsers(usersAtEvent, MAX_EVENT_ORBIT_USERS);
+    syncEventOrbit(eventEntry, visibleBadges, getEventOrbitPatternOffsets(visibleBadges.length, orbitRadius), userScale);
+    usersAtEvent.forEach((entry) => {
+      entry.element?.classList.add("is-event-member-hidden");
+      usersHiddenByAnEvent.add(entry);
     });
   }
+  return usersHiddenByAnEvent;
 }
 
 function eventImageHtml(event) {
@@ -288,7 +369,7 @@ function eventImageHtml(event) {
 }
 
 
-function createEventMarker(event) {
+function createEventMarker(event, onOpenEvent) {
   const element = document.createElement("button");
   element.type = "button";
   element.className = "event-map-marker";
@@ -314,7 +395,7 @@ function createEventMarker(event) {
     ? `<span class="sport-pin__capacity">${escapeHtml(`${event.participant_count || 0}/${event.capacity}`)}</span>`
     : "";
 
-  element.innerHTML = `<span class="sport-pin sport-pin--${pinType}">${imageHtml}<span class="sport-pin__seams"></span>${capacityHtml}</span>`;
+  element.innerHTML = `<span class="event-map-marker__visual"><span class="sport-pin sport-pin--${pinType}">${imageHtml}<span class="sport-pin__seams"></span>${capacityHtml}</span></span><span class="event-map-marker__orbit" aria-hidden="true" hidden></span>`;
 
   const popup = new maplibregl.Popup({
     offset: 24,
@@ -331,7 +412,7 @@ function createEventMarker(event) {
         </div>
         <h3>${escapeHtml(event.title)}</h3>
         <p>${escapeHtml(event.description || "Без опису")}</p>
-        <a class="map-selection-card__action" href="/room/${event.code}">Відкрити подію <span>→</span></a>
+        <button class="map-selection-card__action" type="button" data-open-event="${escapeHtml(event.code)}">Відкрити подію <span>→</span></button>
       </div>
     </article>`
   );
@@ -339,11 +420,24 @@ function createEventMarker(event) {
   const lngLat = normalizeLngLat(event);
   if (!lngLat) return null;
 
-  const marker = new maplibregl.Marker({ element, anchor: "center" })
-    .setLngLat(lngLat)
-    .setPopup(popup);
+  const handlePopupOpen = () => {
+    const action = popup.getElement()?.querySelector("[data-open-event]");
+    if (action) {
+      action.onclick = () => onOpenEvent?.(event.code);
+    }
+  };
+  popup.on("open", handlePopupOpen);
+  const marker = new maplibregl.Marker({ element, anchor: "center" }).setLngLat(lngLat).setPopup(popup);
 
-  return { marker, element, kind: "event", isCurrent: false };
+  return {
+    marker,
+    element,
+    orbitElement: element.querySelector(".event-map-marker__orbit"),
+    event,
+    kind: "event",
+    isCurrent: false,
+    cleanupPopup: () => popup.off("open", handlePopupOpen),
+  };
 }
 
 function createCheckpointMarker(checkpoint) {
@@ -412,7 +506,7 @@ function createUserMarkerElement(user, isCurrent) {
 }
 
 function userSignature(user, isCurrent) {
-  return [user.name, user.photo_url || "", user.presence || "", isCurrent].join("|");
+  return [user.name, user.photo_url || "", user.presence || "", user.age_seconds || 0, user.updated_at || "", isCurrent].join("|");
 }
 
 export default function MapLibreMap({
@@ -427,10 +521,13 @@ export default function MapLibreMap({
   onLocationFound,
   className = "",
 }) {
+  const navigate = useNavigate();
+  const openEvent = useCallback((code) => navigate(`/room/${code}`), [navigate]);
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const checkpointMarkersRef = useRef([]);
   const eventMarkersRef = useRef([]);
+  const eventMarkersByKeyRef = useRef(new Map());
   const selectionMarkerRef = useRef(null);
   const userMarkersRef = useRef(new Map());
   const layoutFrameRef = useRef(null);
@@ -441,15 +538,24 @@ export default function MapLibreMap({
     const map = mapRef.current;
     if (!map) return;
 
+    const zoom = map.getZoom();
     const eventEntries = eventMarkersRef.current;
     const userEntries = Array.from(userMarkersRef.current.values());
 
-    applyMarkerVisualScale([...eventEntries, ...userEntries], map.getZoom());
+    applyEventMarkerVisibility(eventEntries, zoom);
+    applyMarkerVisualScale(userEntries, zoom);
 
-    // Event markers must stay exactly on their geographic coordinates while zooming.
-    // Collision offsets are therefore applied only to people markers.
-    eventEntries.forEach((entry) => entry.marker.setOffset([0, 0]));
-    declutterMarkers(map, userEntries);
+    // Event markers and user coordinates remain geographically immutable.
+    // Event attendee avatars are rendered inside the event marker itself.
+    userEntries.forEach((entry) => {
+      entry.element?.classList.remove("is-event-member-hidden", "is-event-overflow");
+      entry.marker.setOffset([0, 0]);
+      if (entry.realLngLat) entry.marker.setLngLat(entry.realLngLat);
+    });
+
+    layoutEventUserGroups(eventEntries, userEntries, zoom);
+    // User markers always remain at their exact geographic coordinate.
+    userEntries.forEach((entry) => entry.marker.setOffset([0, 0]));
   }, []);
 
   const scheduleMarkerLayout = useCallback(() => {
@@ -476,7 +582,7 @@ export default function MapLibreMap({
               Number(eventPins[0].latitude),
             ]
           : savedView?.center || DEFAULT_CENTER,
-      zoom: savedView?.zoom ?? DEFAULT_ZOOM,
+      zoom: eventPins.length === 1 ? Math.max(15, savedView?.zoom ?? DEFAULT_ZOOM) : (savedView?.zoom ?? DEFAULT_ZOOM),
       bearing: savedView?.bearing ?? 0,
       pitch: savedView?.pitch ?? 0,
       attributionControl: true,
@@ -501,7 +607,6 @@ export default function MapLibreMap({
     map.on("rotateend", persistView);
     map.on("pitchend", persistView);
     map.on("zoom", scheduleMarkerLayout);
-    map.on("move", scheduleMarkerLayout);
 
     const resizeObserver = new ResizeObserver(() => map.resize());
     resizeObserver.observe(containerRef.current);
@@ -509,7 +614,11 @@ export default function MapLibreMap({
     mapRef.current = map;
     return () => {
       checkpointMarkersRef.current.forEach((marker) => marker.remove());
-      eventMarkersRef.current.forEach((entry) => entry.marker.remove());
+      eventMarkersRef.current.forEach((entry) => {
+        entry.destroy?.();
+        entry.marker.remove();
+      });
+      eventMarkersByKeyRef.current.clear();
       userMarkersRef.current.forEach((entry) => entry.marker.remove());
       userMarkersRef.current.clear();
       selectionMarkerRef.current?.remove();
@@ -519,7 +628,6 @@ export default function MapLibreMap({
       map.off("rotateend", persistView);
       map.off("pitchend", persistView);
       map.off("zoom", scheduleMarkerLayout);
-      map.off("move", scheduleMarkerLayout);
       if (layoutFrameRef.current !== null) {
         cancelAnimationFrame(layoutFrameRef.current);
         layoutFrameRef.current = null;
@@ -544,31 +652,54 @@ export default function MapLibreMap({
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
-    eventMarkersRef.current.forEach((entry) => entry.marker.remove());
+    const nextEvents = new Map();
+    for (const event of eventPins) {
+      const key = eventMarkerKey(event);
+      nextEvents.set(key, { event, signature: eventSignature(event) });
+    }
 
-    eventMarkersRef.current = eventPins
-      .map((event) => createEventMarker(event))
-      .filter(Boolean);
-
-    eventMarkersRef.current.forEach((entry) => entry.marker.addTo(map));
-    scheduleMarkerLayout();
-
-    // Якщо відкрита одна подія — перемістити карту на неї
-    if (eventPins.length === 1) {
-      const event = eventPins[0];
-
-      if (
-        Number.isFinite(Number(event.longitude)) &&
-        Number.isFinite(Number(event.latitude))
-      ) {
-        map.flyTo({
-          center: [Number(event.longitude), Number(event.latitude)],
-          zoom: 16,
-          duration: 800,
-        });
+    for (const [key, entry] of eventMarkersByKeyRef.current.entries()) {
+      if (!nextEvents.has(key)) {
+        entry.destroy?.();
+        entry.marker.remove();
+        eventMarkersByKeyRef.current.delete(key);
       }
     }
-  }, [eventPins, mapReady, scheduleMarkerLayout]);
+
+    for (const [key, { event, signature }] of nextEvents.entries()) {
+      let entry = eventMarkersByKeyRef.current.get(key);
+
+      if (!entry || entry.signature !== signature) {
+        entry?.destroy?.();
+        entry?.marker.remove();
+        const created = createEventMarker(event, openEvent);
+        if (!created) continue;
+
+        created.marker.addTo(map);
+        const handleEventClick = (domEvent) => {
+          domEvent.stopPropagation();
+          const target = created.marker.getLngLat();
+          map.easeTo({
+            center: [target.lng, target.lat],
+            duration: 650,
+            essential: true,
+          });
+        };
+        created.element.addEventListener("click", handleEventClick);
+        created.destroy = () => {
+          created.element.removeEventListener("click", handleEventClick);
+          created.cleanupPopup?.();
+        };
+        created.signature = signature;
+        created.key = key;
+        entry = created;
+        eventMarkersByKeyRef.current.set(key, entry);
+      }
+    }
+
+    eventMarkersRef.current = Array.from(eventMarkersByKeyRef.current.values());
+    scheduleMarkerLayout();
+  }, [eventPins, mapReady, openEvent, scheduleMarkerLayout]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -646,11 +777,19 @@ export default function MapLibreMap({
           signature,
           kind: "user",
           isCurrent: item.isCurrent,
+          userId: Number(item.isCurrent ? currentUser?.id : item.user.user_id),
+          user: item.user,
+          realLngLat: lngLat,
         };
         userMarkersRef.current.set(item.key, entry);
       } else {
         const lngLat = normalizeLngLat(item.user);
-        if (lngLat) entry.marker.setLngLat(lngLat);
+        if (lngLat) {
+          entry.realLngLat = lngLat;
+          entry.marker.setLngLat(lngLat);
+        }
+        entry.userId = Number(item.isCurrent ? currentUser?.id : item.user.user_id);
+        entry.user = item.user;
       }
     }
 

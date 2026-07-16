@@ -38,12 +38,17 @@ export default function LoginPage({ onAuthenticated }) {
 
   useEffect(() => {
     let active = true;
+    const clientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
+    if (!clientId) {
+      setLoading(false);
+      return () => { active = false; };
+    }
 
     loadGoogleScript()
       .then(() => {
         if (!active) return;
         window.google?.accounts?.id.initialize({
-          client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID || "",
+          client_id: clientId,
           callback: async (response) => {
             try {
               setLoading(true);
@@ -159,7 +164,7 @@ export default function LoginPage({ onAuthenticated }) {
                 type="password"
                 value={form.password}
                 onChange={(event) => setForm({ ...form, password: event.target.value })}
-                minLength="6"
+                minLength="8"
                 required
               />
             </label>
@@ -168,7 +173,9 @@ export default function LoginPage({ onAuthenticated }) {
             </button>
           </form>
 
-          <div id="google-signin" style={{ marginTop: 24, display: "flex", justifyContent: "center" }} />
+          {(import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim() && (
+            <div id="google-signin" style={{ marginTop: 24, display: "flex", justifyContent: "center" }} />
+          )}
           {loading && <p className="muted" style={{ marginTop: 16 }}>Підключення Google…</p>}
           {error && <p className="error">{error}</p>}
         </section>

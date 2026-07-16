@@ -1,25 +1,35 @@
 # Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
 .venv/
 venv/
+backend/.venv/
+
+# Databases and runtime media
+*.db
+*.db-shm
+*.db-wal
+backend/media/
 
 # Node
+node_modules/
 frontend/node_modules/
 frontend/dist/
 
+# Environment files (commit examples only)
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
 
 # IDE / OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-
-# DB
-app.db
-backend/app.db
-
-# Environment
-.env
-backend/.env
-frontend/.env

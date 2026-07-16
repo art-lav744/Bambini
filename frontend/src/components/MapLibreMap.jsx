@@ -21,9 +21,6 @@ function loadSavedMapView() {
     const longitude = Number(saved?.longitude);
     const latitude = Number(saved?.latitude);
     const zoom = Number(saved?.zoom);
-    const bearing = Number(saved?.bearing ?? 0);
-    const pitch = Number(saved?.pitch ?? 0);
-
     if (
       !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
       !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
@@ -35,8 +32,6 @@ function loadSavedMapView() {
     return {
       center: [longitude, latitude],
       zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)),
-      bearing: Number.isFinite(bearing) ? bearing : 0,
-      pitch: Number.isFinite(pitch) ? Math.min(70, Math.max(0, pitch)) : 0,
     };
   } catch {
     return null;
@@ -52,8 +47,6 @@ function saveMapView(map) {
         longitude: center.lng,
         latitude: center.lat,
         zoom: map.getZoom(),
-        bearing: map.getBearing(),
-        pitch: map.getPitch(),
       })
     );
   } catch {
@@ -228,8 +221,6 @@ function eventOrbitRadiusForZoom(zoom) {
   const eventScale = eventMarkerScaleForZoom(zoom);
   const userScale = markerScaleForZoom(zoom);
 
-  // Keep the small user circles touching the event pin and overlapping its
-  // edge by a few pixels at every zoom level.
   return Math.max(18,
     EVENT_PIN_RADIUS_PX * eventScale +
     EVENT_USER_RADIUS_PX * userScale -
@@ -250,7 +241,8 @@ function applyEventMarkerVisibility(eventEntries, zoom) {
 
   for (const entry of eventEntries) {
     entry.isVisible = visible;
-    entry.element.style.visibility = visible ? "visible" : "hidden";
+    entry.element.classList.toggle("is-zoom-hidden", !visible);
+    entry.element.setAttribute("aria-hidden", String(!visible));
     entry.element.style.pointerEvents = visible ? "auto" : "none";
     entry.element.style.setProperty(
       "--map-marker-scale",
@@ -285,7 +277,11 @@ function createEventAttendeeBadge(entry) {
     "event-map-marker__attendee",
     entry.isCurrent ? "is-current" : "",
   ].filter(Boolean).join(" ");
-  badge.title = entry.isOverflow ? `Ще ${entry.overflowCount} учасників` : entry.isCurrent ? "Ви" : entry.user?.name || "Учасник";
+  badge.title = entry.isOverflow
+    ? `Ще ${entry.overflowCount} учасників`
+    : entry.isCurrent
+      ? "Ви"
+      : entry.user?.name || "Учасник";
 
   if (entry.isOverflow) {
     badge.classList.add("is-overflow");
@@ -312,7 +308,9 @@ function syncEventOrbit(eventEntry, matchingUsers, offsets, userScale) {
   if (!orbitElement) return;
 
   const signature = matchingUsers
-    .map((entry) => entry.isOverflow ? `overflow:${entry.overflowCount}` : `${entry.userId}:${entry.user?.photo_url || ""}:${entry.user?.name || ""}:${entry.isCurrent}`)
+    .map((entry) => entry.isOverflow
+      ? `overflow:${entry.overflowCount}`
+      : `${entry.userId}:${entry.user?.photo_url || ""}:${entry.user?.name || ""}:${entry.isCurrent}`)
     .join("|");
 
   if (eventEntry.orbitSignature !== signature) {
@@ -354,12 +352,18 @@ function layoutEventUserGroups(eventEntries, userEntries, zoom) {
       .sort((a, b) => (a.isCurrent === b.isCurrent ? 0 : a.isCurrent ? -1 : 1));
 
     const visibleBadges = limitEventOrbitUsers(usersAtEvent, MAX_EVENT_ORBIT_USERS);
-    syncEventOrbit(eventEntry, visibleBadges, getEventOrbitPatternOffsets(visibleBadges.length, orbitRadius), userScale);
+    syncEventOrbit(
+      eventEntry,
+      visibleBadges,
+      getEventOrbitPatternOffsets(visibleBadges.length, orbitRadius),
+      userScale
+    );
     usersAtEvent.forEach((entry) => {
       entry.element?.classList.add("is-event-member-hidden");
       usersHiddenByAnEvent.add(entry);
     });
   }
+
   return usersHiddenByAnEvent;
 }
 
@@ -369,7 +373,7 @@ function eventImageHtml(event) {
 }
 
 
-function createEventMarker(event, onOpenEvent) {
+function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
   const element = document.createElement("button");
   element.type = "button";
   element.className = "event-map-marker";
@@ -413,6 +417,7 @@ function createEventMarker(event, onOpenEvent) {
         <h3>${escapeHtml(event.title)}</h3>
         <p>${escapeHtml(event.description || "Без опису")}</p>
         <button class="map-selection-card__action" type="button" data-open-event="${escapeHtml(event.code)}">Відкрити подію <span>→</span></button>
+        ${canJoinNearby ? `<button class="map-selection-card__action" type="button" data-join-event="${escapeHtml(event.code)}">Приєднатися поруч <span>+</span></button>` : ""}
       </div>
     </article>`
   );
@@ -424,6 +429,20 @@ function createEventMarker(event, onOpenEvent) {
     const action = popup.getElement()?.querySelector("[data-open-event]");
     if (action) {
       action.onclick = () => onOpenEvent?.(event.code);
+    }
+    const joinAction = popup.getElement()?.querySelector("[data-join-event]");
+    if (joinAction) {
+      joinAction.onclick = async () => {
+        joinAction.disabled = true;
+        joinAction.textContent = "Приєднання...";
+        try {
+          await onJoinEvent?.(event);
+          joinAction.textContent = "Приєднано";
+        } catch (error) {
+          joinAction.disabled = false;
+          joinAction.textContent = error?.message || "Не вдалося приєднатися";
+        }
+      };
     }
   };
   popup.on("open", handlePopupOpen);
@@ -506,7 +525,16 @@ function createUserMarkerElement(user, isCurrent) {
 }
 
 function userSignature(user, isCurrent) {
-  return [user.name, user.photo_url || "", user.presence || "", user.age_seconds || 0, user.updated_at || "", isCurrent].join("|");
+  return [
+    user.name,
+    user.photo_url || "",
+    user.presence || "",
+    user.age_seconds || 0,
+    user.updated_at || "",
+    user.friend_code || "",
+    user.friendship_status || "",
+    isCurrent,
+  ].join("|");
 }
 
 export default function MapLibreMap({
@@ -519,6 +547,8 @@ export default function MapLibreMap({
   currentLocation = null,
   friendLocations = [],
   onLocationFound,
+  onJoinEvent,
+  onAddFriend,
   className = "",
 }) {
   const navigate = useNavigate();
@@ -545,17 +575,13 @@ export default function MapLibreMap({
     applyEventMarkerVisibility(eventEntries, zoom);
     applyMarkerVisualScale(userEntries, zoom);
 
-    // Event markers and user coordinates remain geographically immutable.
-    // Event attendee avatars are rendered inside the event marker itself.
+    // Nearby participants are represented by compact avatars anchored to the
+    // event marker. Their real map markers return at their GPS coordinates as
+    // soon as they leave the event geofence.
     userEntries.forEach((entry) => {
-      entry.element?.classList.remove("is-event-member-hidden", "is-event-overflow");
-      entry.marker.setOffset([0, 0]);
-      if (entry.realLngLat) entry.marker.setLngLat(entry.realLngLat);
+      entry.element?.classList.remove("is-event-member-hidden");
     });
-
     layoutEventUserGroups(eventEntries, userEntries, zoom);
-    // User markers always remain at their exact geographic coordinate.
-    userEntries.forEach((entry) => entry.marker.setOffset([0, 0]));
   }, []);
 
   const scheduleMarkerLayout = useCallback(() => {
@@ -583,16 +609,22 @@ export default function MapLibreMap({
             ]
           : savedView?.center || DEFAULT_CENTER,
       zoom: eventPins.length === 1 ? Math.max(15, savedView?.zoom ?? DEFAULT_ZOOM) : (savedView?.zoom ?? DEFAULT_ZOOM),
-      bearing: savedView?.bearing ?? 0,
-      pitch: savedView?.pitch ?? 0,
+      bearing: 0,
+      pitch: 0,
       attributionControl: true,
       minZoom: MIN_ZOOM,
       maxZoom: MAX_ZOOM,
-      maxPitch: 70,
+      maxPitch: 0,
+      dragRotate: false,
+      touchPitch: false,
+      pitchWithRotate: false,
     });
 
+    map.touchZoomRotate.disableRotation();
+    map.keyboard.disableRotation();
+
     map.addControl(
-      new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }),
+      new maplibregl.NavigationControl({ showCompass: false }),
       "top-right"
     );
 
@@ -604,8 +636,6 @@ export default function MapLibreMap({
 
     const persistView = () => saveMapView(map);
     map.on("moveend", persistView);
-    map.on("rotateend", persistView);
-    map.on("pitchend", persistView);
     map.on("zoom", scheduleMarkerLayout);
 
     const resizeObserver = new ResizeObserver(() => map.resize());
@@ -619,14 +649,15 @@ export default function MapLibreMap({
         entry.marker.remove();
       });
       eventMarkersByKeyRef.current.clear();
-      userMarkersRef.current.forEach((entry) => entry.marker.remove());
+      userMarkersRef.current.forEach((entry) => {
+        entry.destroy?.();
+        entry.marker.remove();
+      });
       userMarkersRef.current.clear();
       selectionMarkerRef.current?.remove();
       saveMapView(map);
       resizeObserver.disconnect();
       map.off("moveend", persistView);
-      map.off("rotateend", persistView);
-      map.off("pitchend", persistView);
       map.off("zoom", scheduleMarkerLayout);
       if (layoutFrameRef.current !== null) {
         cancelAnimationFrame(layoutFrameRef.current);
@@ -653,9 +684,25 @@ export default function MapLibreMap({
     if (!map || !mapReady) return;
 
     const nextEvents = new Map();
+    const currentCoords = normalizeLngLat(currentLocation);
+    const currentUserId = Number(currentUser?.id);
     for (const event of eventPins) {
       const key = eventMarkerKey(event);
-      nextEvents.set(key, { event, signature: eventSignature(event) });
+      const eventCoords = normalizeLngLat(event);
+      const isParticipant = (event.participant_user_ids || []).map(Number).includes(currentUserId);
+      const canJoinNearby = Boolean(
+        onJoinEvent &&
+        event.visibility === "public" &&
+        !isParticipant &&
+        eventCoords &&
+        currentCoords &&
+        isWithinEventGeofence(eventCoords, currentCoords, currentLocation?.accuracy)
+      );
+      nextEvents.set(key, {
+        event,
+        canJoinNearby,
+        signature: `${eventSignature(event)}|nearby:${canJoinNearby}`,
+      });
     }
 
     for (const [key, entry] of eventMarkersByKeyRef.current.entries()) {
@@ -666,28 +713,17 @@ export default function MapLibreMap({
       }
     }
 
-    for (const [key, { event, signature }] of nextEvents.entries()) {
+    for (const [key, { event, signature, canJoinNearby }] of nextEvents.entries()) {
       let entry = eventMarkersByKeyRef.current.get(key);
 
       if (!entry || entry.signature !== signature) {
         entry?.destroy?.();
         entry?.marker.remove();
-        const created = createEventMarker(event, openEvent);
+        const created = createEventMarker(event, openEvent, onJoinEvent, canJoinNearby);
         if (!created) continue;
 
         created.marker.addTo(map);
-        const handleEventClick = (domEvent) => {
-          domEvent.stopPropagation();
-          const target = created.marker.getLngLat();
-          map.easeTo({
-            center: [target.lng, target.lat],
-            duration: 650,
-            essential: true,
-          });
-        };
-        created.element.addEventListener("click", handleEventClick);
         created.destroy = () => {
-          created.element.removeEventListener("click", handleEventClick);
           created.cleanupPopup?.();
         };
         created.signature = signature;
@@ -699,7 +735,7 @@ export default function MapLibreMap({
 
     eventMarkersRef.current = Array.from(eventMarkersByKeyRef.current.values());
     scheduleMarkerLayout();
-  }, [eventPins, mapReady, openEvent, scheduleMarkerLayout]);
+  }, [currentLocation, currentUser, eventPins, mapReady, onJoinEvent, openEvent, scheduleMarkerLayout]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -720,7 +756,7 @@ export default function MapLibreMap({
 
     for (const friend of friendLocations) {
       visibleUsers.push({
-        key: `friend:${friend.user_id}`,
+        key: `user:${friend.user_id}`,
         isCurrent: false,
         user: friend,
       });
@@ -729,6 +765,7 @@ export default function MapLibreMap({
     const nextKeys = new Set(visibleUsers.map((item) => item.key));
     for (const [key, entry] of userMarkersRef.current.entries()) {
       if (!nextKeys.has(key)) {
+        entry.destroy?.();
         entry.marker.remove();
         userMarkersRef.current.delete(key);
       }
@@ -739,6 +776,7 @@ export default function MapLibreMap({
       let entry = userMarkersRef.current.get(item.key);
 
       if (!entry || entry.signature !== signature) {
+        entry?.destroy?.();
         entry?.marker.remove();
         const element = createUserMarkerElement(item.user, item.isCurrent);
         const displayName = item.isCurrent ? "Ви" : item.user.name;
@@ -750,6 +788,15 @@ export default function MapLibreMap({
         const avatarHtml = item.user.photo_url
           ? `<img src="${escapeHtml(item.user.photo_url)}" alt="">`
           : `<span>${escapeHtml(initials(item.user.name))}</span>`;
+        const friendActionHtml = item.isCurrent
+          ? ""
+          : item.user.friendship_status === "accepted"
+            ? `<span class="map-person-card__relationship">У друзях</span>`
+            : item.user.friendship_status === "pending"
+              ? `<button class="map-selection-card__action" type="button" disabled>Запит уже надіслано</button>`
+              : onAddFriend && item.user.friend_code
+                ? `<button class="map-selection-card__action" type="button" data-add-friend>Додати в друзі <span>+</span></button>`
+                : "";
         const popup = new maplibregl.Popup({
           offset: 34,
           maxWidth: "320px",
@@ -761,13 +808,34 @@ export default function MapLibreMap({
               <div class="map-person-card__status"><span class="is-${escapeHtml(item.user.presence || "online")}"></span>${escapeHtml(statusText)}</div>
               <h3>${escapeHtml(displayName)}</h3>
               <p>${item.isCurrent ? "Це ви на карті" : "Користувач ділиться своєю актуальною геолокацією"}</p>
+              ${friendActionHtml}
             </div>
           </article>`
         );
+        const handlePopupOpen = () => {
+          const action = popup.getElement()?.querySelector("[data-add-friend]");
+          if (!action) return;
+          action.onclick = async () => {
+            action.disabled = true;
+            action.textContent = "Надсилання...";
+            try {
+              await onAddFriend?.(item.user);
+              action.textContent = "Запит надіслано";
+            } catch (error) {
+              action.disabled = false;
+              action.textContent = error?.message || "Не вдалося додати";
+            }
+          };
+        };
+        popup.on("open", handlePopupOpen);
         const lngLat = normalizeLngLat(item.user);
         if (!lngLat) continue;
 
-        const marker = new maplibregl.Marker({ element, anchor: "center" })
+        const marker = new maplibregl.Marker({
+          element,
+          anchor: "center",
+          subpixelPositioning: true,
+        })
           .setLngLat(lngLat)
           .setPopup(popup)
           .addTo(map);
@@ -780,6 +848,7 @@ export default function MapLibreMap({
           userId: Number(item.isCurrent ? currentUser?.id : item.user.user_id),
           user: item.user,
           realLngLat: lngLat,
+          destroy: () => popup.off("open", handlePopupOpen),
         };
         userMarkersRef.current.set(item.key, entry);
       } else {
@@ -794,7 +863,7 @@ export default function MapLibreMap({
     }
 
     scheduleMarkerLayout();
-  }, [currentLocation, currentUser, friendLocations, mapReady, scheduleMarkerLayout]);
+  }, [currentLocation, currentUser, friendLocations, mapReady, onAddFriend, scheduleMarkerLayout]);
 
   useEffect(() => {
     const map = mapRef.current;

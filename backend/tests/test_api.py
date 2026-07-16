@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 
 from app.database import engine
 from app.main import app
-from app.models import EventMember, User, UserLocation
+from app.models import Activity, Checkpoint, EventLocation, EventMember, EventOwner, User, UserLocation
 
 
 def auth_header(token):
@@ -115,6 +115,22 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
             headers=auth_header(alice["token"]),
         ).json()
         assert bob["user"]["id"] in {item["user_id"] for item in nearby}
+        bob_pin = next(item for item in nearby if item["user_id"] == bob["user"]["id"])
+        assert bob_pin["latitude"] == 48.923166
+        assert bob_pin["friend_code"] == bob["user"]["friend_code"]
+        assert bob_pin["friendship_status"] is None
+
+        friend_request = client.post(
+            f"/users/{alice['user']['id']}/friends/request",
+            json={"friend_code": bob_pin["friend_code"]},
+            headers=auth_header(alice["token"]),
+        )
+        assert friend_request.status_code == 201, friend_request.text
+        refreshed_pin = next(item for item in client.get(
+            f"/users/{alice['user']['id']}/visible-locations",
+            headers=auth_header(alice["token"]),
+        ).json() if item["user_id"] == bob["user"]["id"])
+        assert refreshed_pin["friendship_status"] == "pending"
 
         # Capacity and duplicate membership are enforced in the write statement/database.
         capacity_event = create_event(client, alice, title="Capacity event", capacity=2)
@@ -148,6 +164,56 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
         pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII="
         image_event = create_event(client, alice, title="Image event", image_url=pixel)
         assert image_event["image_url"].startswith("/media/events/")
+
+        # Only the owner can remove another member or delete the event.
+        managed_event = create_event(client, alice, title="Managed event")
+        joined_managed = client.post(
+            f"/activities/{managed_event['code']}/join",
+            json={}, headers=auth_header(bob["token"]),
+        )
+        assert joined_managed.status_code == 201, joined_managed.text
+        forbidden_removal = client.delete(
+            f"/activities/{managed_event['code']}/members/{bob['user']['id']}",
+            headers=auth_header(carol["token"]),
+        )
+        assert forbidden_removal.status_code == 403
+        owner_cannot_leave = client.delete(
+            f"/activities/{managed_event['code']}/members/{alice['user']['id']}",
+            headers=auth_header(alice["token"]),
+        )
+        assert owner_cannot_leave.status_code == 409
+        removed = client.delete(
+            f"/activities/{managed_event['code']}/members/{bob['user']['id']}",
+            headers=auth_header(alice["token"]),
+        )
+        assert removed.status_code == 204, removed.text
+        participants = client.get(
+            f"/activities/{managed_event['code']}/participants",
+            headers=auth_header(alice["token"]),
+        ).json()
+        assert bob["user"]["id"] not in {item["user_id"] for item in participants}
+        checkpoint = client.post(
+            f"/activities/{managed_event['code']}/checkpoints",
+            json={"title": "Cleanup point", "description": "", "latitude": 48.9, "longitude": 24.7, "order_index": 1},
+            headers=auth_header(alice["token"]),
+        )
+        assert checkpoint.status_code == 201, checkpoint.text
+        forbidden_delete = client.delete(
+            f"/activities/{managed_event['code']}",
+            headers=auth_header(bob["token"]),
+        )
+        assert forbidden_delete.status_code == 403
+        deleted = client.delete(
+            f"/activities/{managed_event['code']}",
+            headers=auth_header(alice["token"]),
+        )
+        assert deleted.status_code == 204, deleted.text
+        with Session(engine) as session:
+            assert session.get(Activity, managed_event["id"]) is None
+            assert session.get(EventOwner, managed_event["id"]) is None
+            assert session.get(EventLocation, managed_event["id"]) is None
+            assert session.exec(select(EventMember).where(EventMember.activity_id == managed_event["id"])).first() is None
+            assert session.exec(select(Checkpoint).where(Checkpoint.activity_id == managed_event["id"])).first() is None
 
         # Verified Google identities are linked by sub and work repeatedly.
         import google.oauth2.id_token
@@ -255,7 +321,7 @@ def test_stale_viewer_location_cannot_unlock_event_presence():
 
         with Session(engine) as session:
             location = session.get(UserLocation, viewer["user"]["id"])
-            location.updated_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+            location.updated_at = datetime.now(timezone.utc) - timedelta(hours=9)
             session.add(location)
             session.commit()
 

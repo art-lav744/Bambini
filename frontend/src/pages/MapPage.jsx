@@ -50,11 +50,21 @@ export default function MapPage() {
   const [eventPins, setEventPins] = useState([]);
   const [locationError, setLocationError] = useState("");
   const [serverError, setServerError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const [serverOnline, setServerOnline] = useState(false);
 
   const lastUploadAtRef = useRef(0);
   const watchIdRef = useRef(null);
   const latestLocationRef = useRef(null);
+  const actionMessageTimerRef = useRef(null);
+
+  const showActionMessage = useCallback((message) => {
+    window.clearTimeout(actionMessageTimerRef.current);
+    setActionMessage(message);
+    actionMessageTimerRef.current = window.setTimeout(() => setActionMessage(""), 3500);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(actionMessageTimerRef.current), []);
 
   const loadServerUser = useCallback(async () => {
     try {
@@ -99,6 +109,36 @@ export default function MapPage() {
       setServerError("Позиція залишилась на пристрої та синхронізується після відновлення мережі.");
     }
   }, [serverOnline, user]);
+
+  const joinNearbyEvent = useCallback(async (event) => {
+    if (!user?.id) return;
+    try {
+      const joined = await api.joinActivity(event.code, user.id);
+      setEventPins((current) => current.map((item) => item.id === joined.id ? joined : item));
+      showActionMessage(`Ви приєдналися до «${event.title}»`);
+      return joined;
+    } catch (error) {
+      setServerError(error.message);
+      throw error;
+    }
+  }, [showActionMessage, user]);
+
+  const addVisibleUserToFriends = useCallback(async (visibleUser) => {
+    if (!user?.id || !visibleUser?.friend_code) return;
+    try {
+      const request = await api.sendFriendRequest(user.id, visibleUser.friend_code);
+      setVisibleLocations((current) => current.map((item) =>
+        item.user_id === visibleUser.user_id
+          ? { ...item, friendship_status: "pending" }
+          : item
+      ));
+      showActionMessage(`Запит для ${visibleUser.name} надіслано`);
+      return request;
+    } catch (error) {
+      setServerError(error.message);
+      throw error;
+    }
+  }, [showActionMessage, user]);
 
   const handleLocationFound = useCallback((location, forceUpload = false) => {
     latestLocationRef.current = location;
@@ -194,13 +234,14 @@ export default function MapPage() {
   return (
     <main className="fullscreen-map-page">
       <MapLibreMap currentUser={user} currentLocation={currentLocation} friendLocations={visibleLocations}
-        eventPins={eventPins} onLocationFound={handleLocationFound} enableLocation />
+        eventPins={eventPins} onLocationFound={handleLocationFound} onJoinEvent={joinNearbyEvent}
+        onAddFriend={addVisibleUserToFriends} enableLocation />
       <div className="map-brand-card map-user-card">
         <span className={`map-brand-card__dot${currentLocation ? " is-live" : ""}`} />
         <div><strong>{user?.name || "Outdoor Together"}</strong><span>{locationStatus}</span></div>
       </div>
       {serverError && <div className="map-server-toast">{serverError}</div>}
-      {locationError && <div className="map-global-toast">{locationError}</div>}
+      {(locationError || actionMessage) && <div className="map-global-toast">{locationError || actionMessage}</div>}
       <BottomNav />
     </main>
   );

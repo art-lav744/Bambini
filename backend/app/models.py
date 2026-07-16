@@ -349,3 +349,5 @@ class FriendLocationRead(SQLModel):
     updated_at: datetime
     age_seconds: int
     presence: str
+    friend_code: str | None = None
+    friendship_status: str | None = None

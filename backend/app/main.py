@@ -66,7 +66,7 @@ PIN_TYPES = {
 EVENT_LOCATION_BASE_METERS = 40
 EVENT_LOCATION_MIN_EFFECTIVE_METERS = 75
 EVENT_LOCATION_MAX_ACCURACY_METERS = 100
-LIVE_LOCATION_MAX_AGE_SECONDS = 300
+LIVE_LOCATION_MAX_AGE_SECONDS = 8 * 60 * 60
 AUTH_TOKEN_DAYS = 30
 MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BACKEND_DIR / "media"))).resolve()
 EVENT_MEDIA_DIR = MEDIA_ROOT / "events"
@@ -328,6 +328,23 @@ def store_image(value: str | None, category: str) -> str | None:
     filename = f"{secrets.token_hex(20)}{extension}"
     (target_dir / filename).write_bytes(raw)
     return f"/media/{category}/{filename}"
+
+
+def remove_stored_image(value: str | None, category: str) -> None:
+    prefix = f"/media/{category}/"
+    normalized = (value or "").strip()
+    if not normalized.startswith(prefix):
+        return
+    target_dir = (MEDIA_ROOT / category).resolve()
+    target = (target_dir / Path(normalized).name).resolve()
+    if target.parent != target_dir:
+        return
+    try:
+        target.unlink(missing_ok=True)
+    except OSError:
+        # Deleting the database record is authoritative; an unavailable media
+        # file must not prevent the organizer from deleting the event.
+        pass
 
 
 def migrate_embedded_images() -> None:
@@ -752,16 +769,20 @@ def list_friends(user_id: int, current_user: User = Depends(get_current_user), s
     return _friend_connections(current_user, session)
 
 
-def _location_read(user: User, location: UserLocation, now: datetime, reduce_precision: bool = False) -> FriendLocationRead | None:
+def _location_read(
+    user: User,
+    location: UserLocation,
+    now: datetime,
+    friendship_status: str | None = None,
+) -> FriendLocationRead | None:
     age = max(0, int((now - normalized_utc(location.updated_at)).total_seconds()))
     if age > LIVE_LOCATION_MAX_AGE_SECONDS:
         return None
-    latitude = round(location.latitude, 4) if reduce_precision else location.latitude
-    longitude = round(location.longitude, 4) if reduce_precision else location.longitude
     presence = "online" if age <= 30 else "stale" if age <= 120 else "offline"
     return FriendLocationRead(
-        user_id=user.id, name=user.name, photo_url=user.photo_url,
-        latitude=latitude, longitude=longitude, accuracy=location.accuracy,
+        user_id=user.id, name=user.name, photo_url=user.photo_url, friend_code=user.friend_code,
+        friendship_status=friendship_status,
+        latitude=location.latitude, longitude=location.longitude, accuracy=location.accuracy,
         updated_at=location.updated_at, age_seconds=age, presence=presence,
     )
 
@@ -781,7 +802,7 @@ def list_friend_locations(user_id: int, current_user: User = Depends(get_current
         friend, location = users.get(friend_id), locations.get(friend_id)
         if not friend or not location or not friend.location_sharing_enabled or friend.location_visibility not in {"friends", "everyone"}:
             continue
-        item = _location_read(friend, location, now)
+        item = _location_read(friend, location, now, friendship_status="accepted")
         if item:
             result.append(item)
     return result
@@ -792,11 +813,15 @@ def list_visible_locations(user_id: int, current_user: User = Depends(get_curren
     require_same_user(user_id, current_user)
     now = utc_now()
     friendships = session.exec(select(Friendship).where(
-        (Friendship.status == "accepted") & or_(Friendship.requester_id == current_user.id, Friendship.addressee_id == current_user.id)
+        or_(Friendship.requester_id == current_user.id, Friendship.addressee_id == current_user.id)
     )).all()
+    friendships_by_user = {
+        (row.addressee_id if row.requester_id == current_user.id else row.requester_id): row
+        for row in friendships
+    }
     friend_ids = {
         row.addressee_id if row.requester_id == current_user.id else row.requester_id
-        for row in friendships
+        for row in friendships if row.status == "accepted"
     }
 
     # Event presence is temporary and is valid only when the viewer has a fresh
@@ -856,8 +881,13 @@ def list_visible_locations(user_id: int, current_user: User = Depends(get_curren
         )
         if not standard_can_see and not shared_event_can_see:
             continue
-        # Non-friends are shown at approximately 11 m precision.
-        item = _location_read(candidate, location, now, reduce_precision=not is_friend)
+        item = _location_read(
+            candidate,
+            location,
+            now,
+            friendship_status=friendships_by_user.get(candidate.id).status
+            if candidate.id in friendships_by_user else None,
+        )
         if item:
             result.append(item)
     return result
@@ -979,24 +1009,43 @@ def join_activity(
 
 
 @app.delete("/activities/{code}/members/{user_id}", status_code=204)
-def leave_activity(
+def remove_activity_member(
     code: str,
     user_id: int,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    require_same_user(user_id, current_user)
     activity = get_activity_or_404(code, session)
     owner = session.get(EventOwner, activity.id)
-    if owner and owner.user_id == current_user.id:
+    is_owner = bool(owner and owner.user_id == current_user.id)
+    if user_id != current_user.id and not is_owner:
+        raise HTTPException(status_code=403, detail="Лише організатор може видаляти інших учасників")
+    if owner and owner.user_id == user_id:
         raise HTTPException(status_code=409, detail="Організатор не може вийти з власної події")
     membership = session.exec(select(EventMember).where(
-        (EventMember.activity_id == activity.id) & (EventMember.user_id == current_user.id)
+        (EventMember.activity_id == activity.id) & (EventMember.user_id == user_id)
     )).first()
     if membership is None:
-        raise HTTPException(status_code=404, detail="Ви не є учасником цієї події")
+        raise HTTPException(status_code=404, detail="Учасника не знайдено в цій події")
     session.delete(membership)
     session.commit()
+    return None
+
+
+@app.delete("/activities/{code}", status_code=204)
+def delete_activity(
+    code: str,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    activity = get_activity_or_404(code, session)
+    owner = session.get(EventOwner, activity.id)
+    if owner is None or owner.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Лише організатор може видалити подію")
+    image_url = activity.image_url
+    session.delete(activity)
+    session.commit()
+    remove_stored_image(image_url, "events")
     return None
 
 

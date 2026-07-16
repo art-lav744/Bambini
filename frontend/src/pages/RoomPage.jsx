@@ -34,8 +34,12 @@ export default function RoomPage() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [leaving, setLeaving] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [removingUserId, setRemovingUserId] = useState(null);
   const watchRef = useRef(null);
   const lastUploadAtRef = useRef(0);
+  const panelDragRef = useRef(null);
+  const ignorePanelClickRef = useRef(false);
 
   const loadRoom = useCallback(async () => {
     const [activityResult, participantsResult] = await Promise.allSettled([
@@ -184,6 +188,63 @@ export default function RoomPage() {
     }
   }
 
+  async function removeParticipant(participant) {
+    if (!activity || !isHost || participant.is_host || removingUserId !== null) return;
+    if (!window.confirm(`Видалити «${participant.name}» з події?`)) return;
+    setRemovingUserId(participant.user_id);
+    setError("");
+    try {
+      await api.removeActivityMember(activity.code, participant.user_id);
+      await loadRoom();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRemovingUserId(null);
+    }
+  }
+
+  async function deleteEvent() {
+    if (!activity || !isHost || deleting) return;
+    if (!window.confirm(`Назавжди видалити подію «${activity.title}»?`)) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await api.deleteActivity(activity.code);
+      navigate("/events", { replace: true });
+    } catch (err) {
+      setError(err.message);
+      setDeleting(false);
+    }
+  }
+
+  function handlePanelPointerDown(event) {
+    panelDragRef.current = { pointerId: event.pointerId, startY: event.clientY };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is optional in older mobile webviews.
+    }
+  }
+
+  function handlePanelPointerUp(event) {
+    const drag = panelDragRef.current;
+    panelDragRef.current = null;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const distance = event.clientY - drag.startY;
+    if (Math.abs(distance) < 36) return;
+    ignorePanelClickRef.current = true;
+    window.setTimeout(() => { ignorePanelClickRef.current = false; }, 0);
+    setPanelOpen(distance < 0);
+  }
+
+  function handlePanelHandleClick() {
+    if (ignorePanelClickRef.current) {
+      ignorePanelClickRef.current = false;
+      return;
+    }
+    setPanelOpen((value) => !value);
+  }
+
   if (error && !activity) {
     return (
       <main className="form-page">
@@ -211,9 +272,18 @@ export default function RoomPage() {
         <button className="room-map-header__toggle" type="button" onClick={() => setPanelOpen((value) => !value)}>{panelOpen ? "×" : "i"}</button>
       </div>
 
-      {panelOpen && (
-        <aside className="room-sheet event-room-sheet">
-          <div className="room-sheet__handle" />
+      <aside className={`room-sheet event-room-sheet${panelOpen ? "" : " is-collapsed"}`}>
+        <button
+          className="room-sheet__handle"
+          type="button"
+          aria-label={panelOpen ? "Згорнути інформацію про подію" : "Розгорнути інформацію про подію"}
+          aria-expanded={panelOpen}
+          onClick={handlePanelHandleClick}
+          onPointerDown={handlePanelPointerDown}
+          onPointerUp={handlePanelPointerUp}
+          onPointerCancel={() => { panelDragRef.current = null; }}
+        />
+        <div className="event-room-sheet__content" aria-hidden={!panelOpen}>
           {activity.image_url && <div className="event-room-sheet__image"><img src={activity.image_url} alt="" /></div>}
           <div className="event-room-sheet__time">{formatEventDateTime(activity.start_time, activity.end_time)}</div>
           <div className="room-sheet__meta">
@@ -228,6 +298,18 @@ export default function RoomPage() {
               <span key={participant.user_id} className="participant-chip participant-chip--user">
                 {participant.photo_url ? <img src={participant.photo_url} alt="" /> : null}
                 {participant.name}{participant.is_host ? " · host" : ""}
+                {isHost && !participant.is_host && (
+                  <button
+                    className="participant-chip__remove"
+                    type="button"
+                    aria-label={`Видалити ${participant.name} з події`}
+                    title="Видалити учасника"
+                    onClick={() => removeParticipant(participant)}
+                    disabled={removingUserId !== null}
+                  >
+                    {removingUserId === participant.user_id ? "…" : "×"}
+                  </button>
+                )}
               </span>
             ))}
           </div>
@@ -242,9 +324,14 @@ export default function RoomPage() {
               {leaving ? "Від’єднання..." : "Від’єднатися від події"}
             </button>
           )}
+          {isHost && (
+            <button className="button danger-button" type="button" onClick={deleteEvent} disabled={deleting}>
+              {deleting ? "Видалення..." : "Видалити подію"}
+            </button>
+          )}
           {error && <p className="error">{error}</p>}
-        </aside>
-      )}
+        </div>
+      </aside>
       <BottomNav />
     </main>
   );

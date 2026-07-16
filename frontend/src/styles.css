@@ -1,44 +1,13 @@
 :root {
-  /* Central color palette. Change these tokens to retheme the application. */
---color-shadow-soft: rgba(0,0,0,.28);
-  --color-map-attribution-surface: rgba(6,8,9,.68);
-  --color-link-muted: #9ca3aa;
---color-border-default: rgba(255,255,255,.10);
-  --color-surface-floating: rgba(8,10,12,.78);
---color-layer-subtle: rgba(255,255,255,.08);
-  --color-text-muted: #8f979e;
-  --color-contrast-light: #f4f6f7;
-  --color-border-emphasis: rgba(255,255,255,.12);
---color-shadow-panel: rgba(0,0,0,.34);
-  --color-toast-surface: rgba(22,24,27,.94);
-  --color-text-body: #d8dde1;
-  --color-nav-surface-deep: rgba(5,7,9,.97);
-  --color-shadow-card: rgba(0,0,0,.22);
-  --color-text-disabled: #737b82;
---color-active-glow: rgba(255,255,255,.55);
---color-shadow-strong: rgba(0,0,0,.45);
-  --color-content-soft: #a8b0b7;
+  /* Theme-independent colors shared by every palette. */
   --color-content-on-dark: #fff;
-  --color-location-accent: #5f7fff;
-  --color-location-ring: rgba(95,127,255,.18);
---color-surface-hover: rgba(255,255,255,.05);
-  --color-page-background: #080a0c;
---color-control-border: #272c31;
---color-text-subtle: #818990;
---color-neutral-depth: #697178;
   --color-error-text: #ffb3b3;
   --color-error-surface: rgba(132,29,29,.26);
   --color-error-border: rgba(255,120,120,.15);
-  --color-surface-raised: #1a1e22;
---color-header-surface: rgba(8,10,12,.82);
---color-neutral-indicator: #474d52;
---color-chip-surface: #15191c;
-  --color-contrast-muted: #c8cdd1;
---color-avatar-border-strong: rgba(255,255,255,.96);
+  --color-avatar-border-strong: rgba(255,255,255,.96);
   --color-avatar-surface-dark: #20252a;
---color-user-avatar-border: rgba(255,255,255,.7);
-  --color-friend-ring: rgba(210,218,225,.35);
---color-location-error-border: rgba(255,140,140,.16);
+  --color-user-avatar-border: rgba(255,255,255,.7);
+  --color-location-error-border: rgba(255,140,140,.16);
   --color-location-error-surface: rgba(80,20,20,.88);
   --color-location-error-text: #ffd7d7;
   --color-status-online: #8ee7a6;
@@ -47,27 +16,29 @@
   --color-warning-border: rgba(255,190,110,.18);
   --color-warning-surface: rgba(58,42,14,.9);
   --color-warning-text: #ffe3ad;
---color-toggle-track: #30363b;
-  --color-toggle-active: #e9ecee;
-  --color-contrast-dark: #101214;
---color-success-text: #baf3c7;
+  --color-success-text: #baf3c7;
   --color-success-surface: rgba(32,112,53,.24);
   --color-success-border: rgba(100,220,130,.14);
---color-marker-border: rgba(255,255,255,.85);
---color-presence-online: #75df90;
+  --color-danger-border: rgba(239,68,68,.35);
+  --color-danger-surface: rgba(127,29,29,.22);
+  --color-danger-text: #fecaca;
+  --color-presence-online: #75df90;
   --color-presence-ring: rgba(117,223,144,.1);
   --color-presence-stale: #dbbd71;
-  --color-profile-accent-border: rgba(168, 85, 247, 0.28);
-  --color-profile-accent-surface-start: rgba(88, 28, 135, 0.22);
-  --color-profile-accent-surface-end: rgba(17, 24, 39, 0.94);
---color-button-primary-surface: #f1f3f4;
-  --color-shadow-deep: rgba(0,0,0,.5);
-  --color-surface-panel: rgba(8,10,12,.9);
---color-selection-border: rgba(238,242,244,.7);
---color-selection-text-muted: #545b61;
-  --color-surface-inset: rgba(255,255,255,.03);
+
+  --color-marker-border: rgba(255,255,255,.85);
+  --color-marker-neutral-highlight: #f4f6f7;
   --color-marker-neutral-base: #b7bec4;
+  --color-marker-neutral-shadow: #697178;
+  --color-marker-shadow: rgba(0,0,0,.34);
+  --color-marker-soft-shadow: rgba(0,0,0,.28);
+  --color-marker-shine: rgba(255,255,255,.12);
+  --color-marker-overlay-surface: rgba(8,10,12,.78);
+  --color-marker-overlay-text: #f4f6f7;
+  --color-football-highlight: #f4f6f7;
   --color-football-base: #f5f4eb;
+  --color-football-shadow: #c8cdd1;
+  --color-football-seam: #1a1e22;
   --color-basketball-highlight: #ffc069;
   --color-basketball-base: #ef7929;
   --color-basketball-shadow: #b83b16;
@@ -79,7 +50,8 @@
   --color-tennis-highlight: #efff8c;
   --color-tennis-base: #b7e833;
   --color-tennis-shadow: #67a51d;
-  --color-pingpong-highlight: hsl(35, 100%, 60%);
+  --color-tennis-seam: #f4f6f7;
+  --color-pingpong-highlight: hsl(35,100%,60%);
   --color-pingpong-base: #ff964f;
   --color-pingpong-shadow: #c17e12;
   --color-ticket-highlight: #ffe7a3;
@@ -90,6 +62,7 @@
   --color-eightball-base: #111417;
   --color-eightball-shadow: #020304;
   --color-eightball-spot: #f4f1e8;
+  --color-eightball-ink: #101214;
   --color-beer-highlight: #ffd56a;
   --color-beer-base: #e69b1f;
   --color-beer-shadow: #9b5c0b;
@@ -98,33 +71,6 @@
   --color-popcorn-cream: #fff0c9;
   --color-popcorn-kernel: #ffe59a;
   --color-popcorn-kernel-shadow: #d9a83a;
-  --color-surface-filter: rgba(10, 12, 15, 0.92);
-  --color-surface-popup: rgba(10, 12, 15, 0.94);
-  --color-surface-overlay: rgba(4, 6, 8, 0.70);
-  --color-surface-overlay-hover: rgba(30, 34, 38, 0.92);
-  --color-surface-gradient-start: #252a2f;
-  --color-surface-gradient-end: #0f1215;
-  --color-text-muted-alt: #8b9099;
-  --color-text-muted-map: #9ca4ab;
-  --color-text-soft-map: #b8c0c7;
-  --color-text-time: #b5bcc2;
-  --color-action-light: #f2f3f5;
-  --color-action-dark: #111317;
-  --color-danger-border: rgba(239, 68, 68, 0.35);
-  --color-danger-surface: rgba(127, 29, 29, 0.22);
-  --color-danger-text: #fecaca;
-  --color-popup-shadow: rgba(0, 0, 0, 0.52);
-  --color-avatar-border: rgba(255,255,255,.88);
-  --color-avatar-surface: #23282d;
-  --color-status-neutral: #8a9299;
-  --color-status-online-ring: rgba(142,231,166,.12);
-  --color-status-stale: #e7c98e;
-  --color-status-offline: #7c848b;
-  --color-event-media-surface: #191d21;
-  --color-room-media-surface: #15191d;
-  --color-border-muted: rgba(255,255,255,.09);
-  --color-surface-muted: rgba(255,255,255,.055);
-
 }
 
 :root {
@@ -175,7 +121,7 @@ a { color: inherit; }
   box-shadow: 0 10px 30px var(--color-shadow-soft) !important;
   backdrop-filter: blur(18px);
 }
-.maplibregl-ctrl-group button { filter: invert(1) grayscale(1); }
+.maplibregl-ctrl-group button { filter: var(--filter-map-control-icon); }
 .maplibregl-ctrl-bottom-right { bottom: calc(var(--nav-height) + var(--safe-bottom) + 4px); }
 .maplibregl-ctrl-attrib {
   background: var(--color-map-attribution-surface) !important;
@@ -1183,8 +1129,8 @@ a { color: inherit; }
   overflow: hidden;
   border: 3px solid var(--color-marker-border);
   border-radius: 50%;
-  background: radial-gradient(circle at 30% 22%, var(--color-contrast-light), var(--color-marker-neutral-base) 55%, var(--color-neutral-depth));
-  box-shadow: inset -8px -10px 15px var(--color-shadow-panel), 0 10px 18px var(--color-shadow-panel);
+  background: radial-gradient(circle at 30% 22%, var(--color-marker-neutral-highlight), var(--color-marker-neutral-base) 55%, var(--color-marker-neutral-shadow));
+  box-shadow: inset -8px -10px 15px var(--color-marker-shadow), 0 10px 18px var(--color-marker-shadow);
   isolation: isolate;
 }
 .sport-pin__image {
@@ -1205,8 +1151,8 @@ a { color: inherit; }
   padding: 0 5px;
   border: 1px solid var(--color-marker-border);
   border-radius: 50%;
-  background: var(--color-surface-floating);
-  color: var(--color-contrast-light);
+  background: var(--color-marker-overlay-surface);
+  color: var(--color-marker-overlay-text);
   font-size: .78rem;
   font-weight: 900;
   letter-spacing: -.04em;
@@ -1221,17 +1167,17 @@ a { color: inherit; }
   opacity: .95;
 }
 .sport-pin--default .sport-pin__seams {
-  background: radial-gradient(circle at 28% 20%, var(--color-border-emphasis), transparent 36%);
-  box-shadow: inset -8px -10px 15px var(--color-shadow-panel);
+  background: radial-gradient(circle at 28% 20%, var(--color-marker-shine), transparent 36%);
+  box-shadow: inset -8px -10px 15px var(--color-marker-shadow);
 }
-.sport-pin--football { background: radial-gradient(circle at 30% 22%, var(--color-contrast-light), var(--color-football-base) 58%, var(--color-contrast-muted)); }
-.sport-pin--football .sport-pin__seams { background: radial-gradient(circle at 50% 14%, var(--color-surface-raised) 0 8px, transparent 9px), radial-gradient(circle at 10% 52%, var(--color-surface-raised) 0 8px, transparent 9px), radial-gradient(circle at 90% 52%, var(--color-surface-raised) 0 8px, transparent 9px), radial-gradient(circle at 50% 88%, var(--color-surface-raised) 0 8px, transparent 9px); }
+.sport-pin--football { background: radial-gradient(circle at 30% 22%, var(--color-football-highlight), var(--color-football-base) 58%, var(--color-football-shadow)); }
+.sport-pin--football .sport-pin__seams { background: radial-gradient(circle at 50% 14%, var(--color-football-seam) 0 8px, transparent 9px), radial-gradient(circle at 10% 52%, var(--color-football-seam) 0 8px, transparent 9px), radial-gradient(circle at 90% 52%, var(--color-football-seam) 0 8px, transparent 9px), radial-gradient(circle at 50% 88%, var(--color-football-seam) 0 8px, transparent 9px); }
 .sport-pin--basketball { background: radial-gradient(circle at 30% 22%, var(--color-basketball-highlight), var(--color-basketball-base) 52%, var(--color-basketball-shadow)); }
 .sport-pin--basketball .sport-pin__seams { background: linear-gradient(90deg, transparent 48%, var(--color-basketball-seam) 48% 52%, transparent 52%), linear-gradient(transparent 48%, var(--color-basketball-seam) 48% 52%, transparent 52%); }
 .sport-pin--volleyball { background: radial-gradient(circle at 30% 22%, var(--color-volleyball-highlight), var(--color-volleyball-base) 50%, var(--color-volleyball-shadow)); }
 .sport-pin--volleyball .sport-pin__seams { background: conic-gradient(from 35deg, transparent 0 20%, var(--color-volleyball-seam) 20% 31%, transparent 31% 53%, var(--color-volleyball-seam) 53% 64%, transparent 64%); }
 .sport-pin--tennis { background: radial-gradient(circle at 30% 22%, var(--color-tennis-highlight), var(--color-tennis-base) 53%, var(--color-tennis-shadow)); }
-.sport-pin--tennis .sport-pin__seams { border: 3px solid transparent; border-left-color: var(--color-contrast-light); border-right-color: var(--color-contrast-light); border-radius: 45%; transform: rotate(22deg) scale(.82, 1.12); }
+.sport-pin--tennis .sport-pin__seams { border: 3px solid transparent; border-left-color: var(--color-tennis-seam); border-right-color: var(--color-tennis-seam); border-radius: 45%; transform: rotate(22deg) scale(.82, 1.12); }
 .sport-pin--pingpong { background: radial-gradient(circle at 30% 22%, var(--color-pingpong-highlight), var(--color-pingpong-base) 52%, var(--color-pingpong-shadow)); }
 
 .sport-pin--ticket {
@@ -1264,7 +1210,7 @@ a { color: inherit; }
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: var(--color-eightball-spot);
-  color: var(--color-contrast-dark);
+  color: var(--color-eightball-ink);
   font-size: 1.25rem;
   font-weight: 950;
   line-height: 1;
@@ -1277,14 +1223,14 @@ a { color: inherit; }
   border: 0;
   border-radius: 0;
   background: transparent;
-  box-shadow: 0 10px 18px var(--color-shadow-panel);
+  box-shadow: 0 10px 18px var(--color-marker-shadow);
 }
 .sport-pin--beer .sport-pin__seams {
   inset: 13px 15px 7px 7px;
   border: 2px solid var(--color-marker-border);
   border-radius: 8px 8px 12px 12px;
   background: linear-gradient(90deg, var(--color-beer-shadow), var(--color-beer-base) 28%, var(--color-beer-highlight) 62%, var(--color-beer-base));
-  box-shadow: inset -7px -8px 12px var(--color-shadow-soft);
+  box-shadow: inset -7px -8px 12px var(--color-marker-soft-shadow);
 }
 .sport-pin--beer .sport-pin__seams::before {
   content: "";
@@ -1316,7 +1262,7 @@ a { color: inherit; }
   border: 0;
   border-radius: 0;
   background: transparent;
-  box-shadow: 0 10px 18px var(--color-shadow-panel);
+  box-shadow: 0 10px 18px var(--color-marker-shadow);
 }
 .sport-pin--popcorn .sport-pin__seams {
   inset: 22px 9px 3px;

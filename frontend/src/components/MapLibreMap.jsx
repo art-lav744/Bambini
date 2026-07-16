@@ -84,20 +84,35 @@ function safeSetLayout(map, layerId, property, value) {
   }
 }
 
-function applyBleakStyle(map) {
+function mapThemeColors() {
+  const styles = getComputedStyle(document.documentElement);
+  const read = (name) => styles.getPropertyValue(name).trim();
+
+  return {
+    water: read("--color-map-water"),
+    roadMajor: read("--color-map-road-major"),
+    road: read("--color-text-muted-map"),
+    boundary: read("--color-map-boundary"),
+    label: read("--color-text-soft-map"),
+    labelHalo: read("--color-map-label-halo"),
+  };
+}
+
+function applyMapThemeStyle(map) {
   const layers = map.getStyle()?.layers || [];
+  const colors = mapThemeColors();
 
   for (const layer of layers) {
     const id = layer.id.toLowerCase();
     const sourceLayer = String(layer["source-layer"] || "").toLowerCase();
     const key = `${id} ${sourceLayer}`;
 
-    // Keep the base OpenFreeMap dark style intact. Repainting every fill layer
+    // Keep the base OpenFreeMap style intact. Repainting every fill layer
     // after the style loads caused the whole map to visibly turn almost black
     // about a second after entering /map.
     if (layer.type === "fill") {
       if (key.includes("water")) {
-        safeSetPaint(map, layer.id, "fill-color", "#101820");
+        safeSetPaint(map, layer.id, "fill-color", colors.water);
         safeSetPaint(map, layer.id, "fill-opacity", 0.96);
       } else if (
         key.includes("park") ||
@@ -124,10 +139,10 @@ function applyBleakStyle(map) {
           key.includes("motorway") ||
           key.includes("trunk") ||
           key.includes("primary");
-        safeSetPaint(map, layer.id, "line-color", major ? "#e3e7ea" : "#9ca4ab");
+        safeSetPaint(map, layer.id, "line-color", major ? colors.roadMajor : colors.road);
         safeSetPaint(map, layer.id, "line-opacity", major ? 0.94 : 0.8);
       } else if (key.includes("boundary")) {
-        safeSetPaint(map, layer.id, "line-color", "#555d65");
+        safeSetPaint(map, layer.id, "line-color", colors.boundary);
       }
       continue;
     }
@@ -162,8 +177,8 @@ function applyBleakStyle(map) {
         continue;
       }
 
-      safeSetPaint(map, layer.id, "text-color", "#b8c0c7");
-      safeSetPaint(map, layer.id, "text-halo-color", "#0a0d10");
+      safeSetPaint(map, layer.id, "text-color", colors.label);
+      safeSetPaint(map, layer.id, "text-halo-color", colors.labelHalo);
       safeSetPaint(map, layer.id, "text-halo-width", 1.1);
     }
   }
@@ -628,10 +643,19 @@ export default function MapLibreMap({
       "top-right"
     );
 
+    const applyCurrentTheme = () => applyMapThemeStyle(map);
     map.on("load", () => {
-      applyBleakStyle(map);
+      applyCurrentTheme();
       map.resize();
       setMapReady(true);
+    });
+
+    const themeObserver = new MutationObserver(() => {
+      if (map.isStyleLoaded()) applyCurrentTheme();
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
     });
 
     const persistView = () => saveMapView(map);
@@ -657,6 +681,7 @@ export default function MapLibreMap({
       selectionMarkerRef.current?.remove();
       saveMapView(map);
       resizeObserver.disconnect();
+      themeObserver.disconnect();
       map.off("moveend", persistView);
       map.off("zoom", scheduleMarkerLayout);
       if (layoutFrameRef.current !== null) {

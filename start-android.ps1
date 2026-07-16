@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $DevScript = Join-Path $Root "start-dev.ps1"
 
-Write-Host "=== Outdoor Together: Android HTTPS mode ===" -ForegroundColor Cyan
+Write-Host "=== Bambini: Android HTTPS mode ===" -ForegroundColor Cyan
 
 if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
     Write-Host "cloudflared is not installed." -ForegroundColor Yellow

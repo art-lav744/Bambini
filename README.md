@@ -1,4 +1,4 @@
-# Bambini / Outdoor Together
+# Bambini
 
 Android-first React + MapLibre frontend with a FastAPI/SQLite backend.
 

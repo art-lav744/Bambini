@@ -112,7 +112,7 @@ export default function LoginPage({ onAuthenticated }) {
       <div className="tab-page__content" style={{ maxWidth: 460 }}>
         <div className="profile-hero">
           <div>
-            <div className="eyebrow">Outdoor Together</div>
+            <div className="eyebrow">Bambini</div>
             <h1>Увійдіть, щоб продовжити</h1>
           </div>
         </div>

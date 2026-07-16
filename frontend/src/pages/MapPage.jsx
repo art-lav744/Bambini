@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import MapLibreMap from "../components/MapLibreMap.jsx";
+import { filterMapEvents, MAP_EVENT_FILTER_OPTIONS, normalizeMapEventFilter } from "../mapEventFilter.js";
+import { filterMapPeople, MAP_PEOPLE_FILTER_OPTIONS, normalizeMapPeopleFilter } from "../mapPeopleFilter.js";
 import { ensureCurrentUser } from "../userSession.js";
 
 const LOCATION_UPLOAD_INTERVAL_MS = 8000;
@@ -9,6 +11,24 @@ const LOCATION_HEARTBEAT_MS = 30000;
 const LOCATION_POLL_INTERVAL_MS = 8000;
 const EVENT_POLL_INTERVAL_MS = 20000;
 const SERVER_RETRY_INTERVAL_MS = 10000;
+const PEOPLE_FILTER_STORAGE_KEY = "bambini:map:people-filter";
+const EVENT_FILTER_STORAGE_KEY = "bambini:map:event-filter";
+
+function initialPeopleFilter() {
+  try {
+    return normalizeMapPeopleFilter(localStorage.getItem(PEOPLE_FILTER_STORAGE_KEY));
+  } catch {
+    return "all";
+  }
+}
+
+function initialEventFilter() {
+  try {
+    return normalizeMapEventFilter(localStorage.getItem(EVENT_FILTER_STORAGE_KEY));
+  } catch {
+    return "all";
+  }
+}
 
 function geolocationMessage(error) {
   if (error?.code === 1) return "Доступ до геолокації заборонено. Дозвольте його в налаштуваннях браузера.";
@@ -52,6 +72,10 @@ export default function MapPage() {
   const [serverError, setServerError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [serverOnline, setServerOnline] = useState(false);
+  const [peopleFilter, setPeopleFilter] = useState(initialPeopleFilter);
+  const [eventFilter, setEventFilter] = useState(initialEventFilter);
+  const [peopleFilterExpanded, setPeopleFilterExpanded] = useState(false);
+  const [eventFilterExpanded, setEventFilterExpanded] = useState(false);
 
   const lastUploadAtRef = useRef(0);
   const watchIdRef = useRef(null);
@@ -225,20 +249,96 @@ export default function MapPage() {
   }, [serverOnline, user]);
 
   const visibility = locationVisibility(user);
+  const displayedLocations = useMemo(
+    () => filterMapPeople(visibleLocations, peopleFilter),
+    [peopleFilter, visibleLocations]
+  );
+  const displayedEvents = useMemo(
+    () => filterMapEvents(eventPins, eventFilter, user?.id),
+    [eventFilter, eventPins, user?.id]
+  );
   const locationStatus = currentLocation
-    ? `${visibleLocations.length} людей • ${eventPins.length} подій${serverOnline ? "" : " • локально"}`
+    ? `${displayedLocations.length} людей • ${displayedEvents.length} подій${serverOnline ? "" : " • локально"}`
     : !window.isSecureContext ? "Карта доступна • GPS потребує HTTPS"
       : visibility === "none" && user?.id ? "Позиція лише на вашому пристрої"
         : "Очікуємо геолокацію...";
 
   return (
     <main className="fullscreen-map-page">
-      <MapLibreMap currentUser={user} currentLocation={currentLocation} friendLocations={visibleLocations}
-        eventPins={eventPins} onLocationFound={handleLocationFound} onJoinEvent={joinNearbyEvent}
+      <MapLibreMap currentUser={user} currentLocation={currentLocation} friendLocations={displayedLocations}
+        eventPins={displayedEvents} onLocationFound={handleLocationFound} onJoinEvent={joinNearbyEvent}
         onAddFriend={addVisibleUserToFriends} enableLocation />
       <div className="map-brand-card map-user-card">
         <span className={`map-brand-card__dot${currentLocation ? " is-live" : ""}`} />
-        <div><strong>{user?.name || "Outdoor Together"}</strong><span>{locationStatus}</span></div>
+        <div><strong>{user?.name || "Bambini"}</strong><span>{locationStatus}</span></div>
+      </div>
+      <div className="map-filter-stack">
+        <div className="map-layer-filter map-people-filter" role="group" aria-label="Кого показувати на карті">
+          <button
+            className={`map-layer-filter__label${peopleFilterExpanded ? " is-expanded" : ""}`}
+            type="button"
+            aria-expanded={peopleFilterExpanded}
+            aria-controls="map-people-filter-options"
+            onClick={() => setPeopleFilterExpanded((expanded) => !expanded)}
+          >
+            Люди
+          </button>
+          {peopleFilterExpanded && (
+            <div className="map-layer-filter__options" id="map-people-filter-options">
+              {MAP_PEOPLE_FILTER_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  className={peopleFilter === option.value ? "is-active" : ""}
+                  type="button"
+                  aria-pressed={peopleFilter === option.value}
+                  onClick={() => {
+                    setPeopleFilter(option.value);
+                    try {
+                      localStorage.setItem(PEOPLE_FILTER_STORAGE_KEY, option.value);
+                    } catch {
+                      // The filter still works for this session if storage is unavailable.
+                    }
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="map-layer-filter map-event-filter" role="group" aria-label="Які події показувати на карті">
+          <button
+            className={`map-layer-filter__label${eventFilterExpanded ? " is-expanded" : ""}`}
+            type="button"
+            aria-expanded={eventFilterExpanded}
+            aria-controls="map-event-filter-options"
+            onClick={() => setEventFilterExpanded((expanded) => !expanded)}
+          >
+            Події
+          </button>
+          {eventFilterExpanded && (
+            <div className="map-layer-filter__options" id="map-event-filter-options">
+              {MAP_EVENT_FILTER_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  className={eventFilter === option.value ? "is-active" : ""}
+                  type="button"
+                  aria-pressed={eventFilter === option.value}
+                  onClick={() => {
+                    setEventFilter(option.value);
+                    try {
+                      localStorage.setItem(EVENT_FILTER_STORAGE_KEY, option.value);
+                    } catch {
+                      // The filter still works for this session if storage is unavailable.
+                    }
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       {serverError && <div className="map-server-toast">{serverError}</div>}
       {(locationError || actionMessage) && <div className="map-global-toast">{locationError || actionMessage}</div>}

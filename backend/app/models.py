@@ -43,6 +43,65 @@ def _require_aware_datetime(value: datetime | None, field_name: str) -> datetime
     return value.astimezone(timezone.utc)
 
 
+ACTIVITY_TAGS = (
+    "sport", "football", "basketball", "volleyball", "tennis", "running",
+    "cycling", "walk", "picnic", "hiking", "music", "cinema",
+    "board-games", "party", "coffee", "family", "kids", "networking",
+)
+ACTIVITY_TAG_ALIASES = {
+    "спорт": "sport",
+    "футбол": "football",
+    "баскетбол": "basketball",
+    "волейбол": "volleyball",
+    "теніс": "tennis",
+    "біг": "running",
+    "велосипед": "cycling",
+    "прогулянка": "walk",
+    "пікнік": "picnic",
+    "туризм": "hiking",
+    "музика": "music",
+    "кіно": "cinema",
+    "настільні ігри": "board-games",
+    "вечірка": "party",
+    "кава": "coffee",
+    "сім’я": "family",
+    "сім'я": "family",
+    "діти": "kids",
+    "знайомства": "networking",
+}
+_ACTIVITY_TAG_LOOKUP = {tag.casefold(): tag for tag in ACTIVITY_TAGS} | ACTIVITY_TAG_ALIASES
+
+
+def normalize_activity_tags(value, *, reject_unknown: bool = True) -> list[str]:
+    if value is None:
+        return []
+    items = value.split(",") if isinstance(value, str) else value
+    if not isinstance(items, (list, tuple, set)):
+        raise ValueError("tags must be a list")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        raw_tag = re.sub(r"\s+", " ", str(item or "")).strip().lstrip("#").strip()
+        if not raw_tag:
+            continue
+        tag = _ACTIVITY_TAG_LOOKUP.get(raw_tag.casefold())
+        if tag is None:
+            if reject_unknown:
+                raise ValueError(f"unknown event tag: {raw_tag}")
+            continue
+        key = tag.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(tag)
+    if len(normalized) > 5:
+        if reject_unknown:
+            raise ValueError("an event can contain at most 5 tags")
+        return normalized[:5]
+    return normalized
+
+
 class ActivityBase(SQLModel):
     title: str = Field(min_length=3, max_length=120)
     description: str = Field(default="", max_length=1000)
@@ -65,6 +124,7 @@ class Activity(ActivityBase, table=True):
     image_url: str | None = Field(default=None, max_length=1000)
     capacity: int | None = Field(default=None, ge=1, le=50)
     pin_type: str = Field(default="default", max_length=30)
+    tags_json: str = Field(default="[]", max_length=1000)
     start_time: datetime | None = None
     end_time: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)
@@ -80,8 +140,14 @@ class ActivityCreate(ActivityBase):
     image_url: str | None = Field(default=None, max_length=3_000_000)
     capacity: int | None = Field(default=None, ge=1, le=50)
     pin_type: str = Field(default="default", max_length=30)
+    tags: list[str] = Field(default_factory=list)
     start_time: datetime
     end_time: datetime | None = None
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def validate_tags(cls, value):
+        return normalize_activity_tags(value)
 
     @field_validator("start_time", mode="after")
     @classmethod
@@ -107,10 +173,18 @@ class ActivityUpdate(SQLModel):
     image_url: str | None = Field(default=None, max_length=3_000_000)
     capacity: int | None = Field(default=None, ge=1, le=50)
     pin_type: str | None = Field(default=None, max_length=30)
+    tags: list[str] | None = None
     start_time: datetime | None = None
     end_time: datetime | None = None
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def validate_tags(cls, value):
+        if value is None:
+            return None
+        return normalize_activity_tags(value)
 
     @field_validator("title", mode="before")
     @classmethod
@@ -143,6 +217,7 @@ class ActivityRead(ActivityBase):
     image_url: str | None
     capacity: int | None
     pin_type: str
+    tags: list[str] = Field(default_factory=list)
     participant_count: int = 0
     participant_user_ids: list[int] = Field(default_factory=list)
     start_time: datetime | None

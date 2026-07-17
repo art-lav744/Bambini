@@ -66,6 +66,8 @@ def _run_lightweight_sqlite_migrations() -> None:
                 connection.execute(text(f'ALTER TABLE "activity" ADD COLUMN {column} {sql_type}'))
         if activity_columns and "pin_type" not in activity_columns:
             connection.execute(text('ALTER TABLE "activity" ADD COLUMN pin_type TEXT NOT NULL DEFAULT "default"'))
+        if activity_columns and "tags_json" not in activity_columns:
+            connection.execute(text("ALTER TABLE activity ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"))
 
         friendship_columns = _columns(connection, "friendship")
         if friendship_columns and "pair_key" not in friendship_columns:

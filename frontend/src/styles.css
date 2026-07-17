@@ -207,6 +207,9 @@ a { color: inherit; }
   background: var(--color-contrast-light);
   color: var(--color-contrast-dark);
 }
+.map-tag-filter.is-expanded { flex-direction: column; align-items: flex-start; max-width: min(430px, calc(100vw - 20px)); }
+.map-tag-filter__options { display: flex; flex-wrap: wrap; gap: 3px; max-height: 172px; overflow-y: auto; padding: 2px; }
+.map-tag-filter__options button { min-height: 28px; padding-inline: 8px; }
 
 .map-fab {
   position: absolute;
@@ -374,6 +377,25 @@ a { color: inherit; }
 .form label { display: grid; gap: 8px; color: var(--color-text-body); font-size: .86rem; font-weight: 750; }
 .form input, .form textarea { width: 100%; border: 1px solid var(--color-control-border); border-radius: 14px; padding: 13px 14px; background: var(--color-page-background); color: var(--color-contrast-light); }
 .form input:focus, .form textarea:focus { outline: 3px solid var(--color-layer-subtle); border-color: var(--color-neutral-depth); }
+.field-hint { color: var(--color-text-muted); font-size: .72rem; font-weight: 600; }
+.event-tag-picker { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--color-border-default); border-radius: 14px; background: var(--color-surface-filter); }
+.event-tag-picker__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--color-text-body); font-size: .82rem; }
+.event-tag-picker__heading span { color: var(--color-text-muted); }
+.event-tag-picker__options { display: flex; flex-wrap: wrap; gap: 6px; }
+.event-tag-picker__options button,
+.event-tag-filter__options button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 999px;
+  background: var(--color-surface-hover);
+  color: var(--color-text-body);
+  font-size: .74rem;
+  font-weight: 750;
+}
+.event-tag-picker__options button.is-active,
+.event-tag-filter__options button.is-active { border-color: var(--color-selection-border); background: var(--color-action-light); color: var(--color-action-dark); }
+.event-tag-picker__options button:disabled { cursor: not-allowed; opacity: .38; }
 .room-code-input { text-transform: uppercase; letter-spacing: .25em; font-weight: 900; }
 .button { display: inline-flex; align-items: center; justify-content: center; min-height: 50px; border: 0; border-radius: 14px; padding: 12px 18px; font-weight: 850; text-decoration: none; }
 .button.primary { background: var(--color-button-primary-surface); color: var(--color-page-background); }
@@ -449,6 +471,9 @@ a { color: inherit; }
 .event-room-view { display: grid; gap: 12px; min-width: 0; }
 .event-room-actions { display: grid; gap: 8px; margin-top: 4px; }
 .event-room-actions .danger-button { margin-top: 0; }
+.event-tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.event-tag { border: 1px solid var(--color-border-default); border-radius: 999px; padding: 5px 9px; background: var(--color-surface-hover); color: var(--color-text-body); font-size: .72rem; font-weight: 750; }
+.event-directions-button { width: 100%; }
 .event-room-actions--split { grid-template-columns: minmax(0, 1fr) auto; }
 .event-participant-list { gap: 8px; }
 .event-participant-row {
@@ -1005,6 +1030,14 @@ a { color: inherit; }
   color: var(--color-action-dark);
 }
 
+.event-tag-filter { display: grid; gap: 9px; margin: -10px 0 20px; }
+.event-tag-filter__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--color-text-body); font-size: .82rem; }
+.event-tag-filter__heading button { padding: 4px 0; border: 0; background: transparent; color: var(--color-text-muted); font-size: .74rem; font-weight: 800; }
+.event-tag-filter__options { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+.event-tag-filter__options button { flex: 0 0 auto; }
+.event-tag-list--compact { margin-top: 2px; }
+.event-tag-list--compact .event-tag { padding: 3px 7px; font-size: .64rem; }
+
 .event-notifications { display: grid; gap: 8px; margin: 14px 0; }
 .event-notification {
   display: grid;
@@ -1029,6 +1062,8 @@ a { color: inherit; }
   color: inherit;
   text-decoration: none;
 }
+.event-distance-status { margin: 0 0 10px; color: var(--color-text-muted); font-size: .76rem; line-height: 1.4; }
+.event-list-card__distance { color: var(--color-text-body); font-size: .72rem; font-weight: 850; }
 
 .small-action--danger,
 .danger-button {

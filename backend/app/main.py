@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import json
 import math
 import mimetypes
 import os
@@ -59,6 +60,7 @@ from .models import (
     UserNotificationRead,
     UserRead,
     UserUpdate,
+    normalize_activity_tags,
     utc_now,
 )
 
@@ -402,6 +404,13 @@ def serialize_activities(activities: Iterable[Activity], session: Session) -> li
         owner = owners.get(activity.id)
         location = locations.get(activity.id)
         members = memberships_by_activity.get(activity.id, [])
+        try:
+            tags = normalize_activity_tags(
+                json.loads(activity.tags_json or "[]"),
+                reject_unknown=False,
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            tags = []
         result.append(ActivityRead(
             id=activity.id,
             title=activity.title,
@@ -411,6 +420,7 @@ def serialize_activities(activities: Iterable[Activity], session: Session) -> li
             image_url=activity.image_url,
             capacity=activity.capacity,
             pin_type=activity.pin_type,
+            tags=tags,
             participant_count=len(members),
             participant_user_ids=[member.user_id for member in members],
             start_time=normalized_utc(activity.start_time) if activity.start_time else None,
@@ -938,6 +948,7 @@ def create_activity(
         image_url=store_image(data.image_url, "events"),
         capacity=data.capacity,
         pin_type=data.pin_type if data.pin_type in PIN_TYPES else "default",
+        tags_json=json.dumps(data.tags, ensure_ascii=False),
         start_time=data.start_time,
         end_time=data.end_time,
         code=generate_unique_code(session, Activity, "code", 6, string.ascii_uppercase + string.digits),
@@ -1042,6 +1053,9 @@ def update_activity(
         updates["visibility"] = normalize_event_visibility(updates["visibility"])
     if "pin_type" in updates and updates["pin_type"] not in PIN_TYPES:
         raise HTTPException(status_code=422, detail="Невідомий тип позначки події")
+
+    if "tags" in updates:
+        activity.tags_json = json.dumps(updates.pop("tags"), ensure_ascii=False)
 
     previous_image = activity.image_url
     stored_image = previous_image

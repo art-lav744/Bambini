@@ -4,6 +4,8 @@ import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 import { formatEventDateTime } from "../eventFormat.js";
+import { EVENT_TAG_OPTIONS, eventTagLabel, filterEventsByTags, toggleEventTag } from "../eventTags.js";
+import { eventsWithDistance, formatEventDistance } from "../mapMath.js";
 
 const FILTERS = [
   { value: "mine", label: "Мої" },
@@ -19,6 +21,9 @@ export default function EventsPage() {
   const [publicEvents, setPublicEvents] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [filter, setFilter] = useState("mine");
+  const [tagFilter, setTagFilter] = useState([]);
+  const [viewerLocation, setViewerLocation] = useState(null);
+  const [distanceStatus, setDistanceStatus] = useState("loading");
   const [joiningId, setJoiningId] = useState(null);
   const [leavingId, setLeavingId] = useState(null);
   const [error, setError] = useState("");
@@ -53,12 +58,37 @@ export default function EventsPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    if (!window.isSecureContext || !navigator.geolocation) {
+      setDistanceStatus("unavailable");
+      return () => { active = false; };
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (!active) return;
+        setViewerLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+        setDistanceStatus("ready");
+      },
+      () => active && setDistanceStatus("unavailable"),
+      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 12000 }
+    );
+    return () => { active = false; };
+  }, []);
+
   const joinedIds = useMemo(() => new Set(myEvents.map((event) => event.id)), [myEvents]);
-  const visibleEvents = filter === "mine"
+  const sourceEvents = filter === "mine"
     ? myEvents
     : filter === "friends"
       ? friendEvents
       : publicEvents;
+  const visibleEvents = useMemo(
+    () => eventsWithDistance(filterEventsByTags(sourceEvents, tagFilter), viewerLocation),
+    [sourceEvents, tagFilter, viewerLocation]
+  );
 
   async function joinEvent(event) {
     if (!user) return;
@@ -157,10 +187,32 @@ export default function EventsPage() {
           ))}
         </div>
 
+        <section className="event-tag-filter" aria-label="Фільтр подій за тегами">
+          <div className="event-tag-filter__heading">
+            <strong>Фільтр за тегами</strong>
+            {tagFilter.length > 0 && <button type="button" onClick={() => setTagFilter([])}>Скинути</button>}
+          </div>
+          <div className="event-tag-filter__options">
+            {EVENT_TAG_OPTIONS.map((tag) => (
+              <button
+                key={tag.value}
+                type="button"
+                className={tagFilter.includes(tag.value) ? "is-active" : ""}
+                aria-pressed={tagFilter.includes(tag.value)}
+                onClick={() => setTagFilter((current) => toggleEventTag(current, tag.value, Number.POSITIVE_INFINITY))}
+              >
+                {tag.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
         <section className="event-list-section">
+          {distanceStatus === "loading" && <p className="event-distance-status">Визначаємо відстань до подій…</p>}
+          {distanceStatus === "unavailable" && <p className="event-distance-status">Дозвольте геолокацію, щоб побачити відстань і сортування найближчих подій.</p>}
           {visibleEvents.length ? (
             <div className="event-list">
-              {visibleEvents.map((event) => {
+              {visibleEvents.map(({ event, distanceMeters }) => {
                 const joined = joinedIds.has(event.id);
                 const isHost = event.host_user_id === user?.id;
                 return (
@@ -178,6 +230,14 @@ export default function EventsPage() {
                         <time>{formatEventDateTime(event.start_time)}</time>
                       </div>
                       <span>{event.description || `Код ${event.code}`}</span>
+                      {Number.isFinite(distanceMeters) && (
+                        <span className="event-list-card__distance">До події: {formatEventDistance(distanceMeters)}</span>
+                      )}
+                      {event.tags?.length > 0 && (
+                        <div className="event-tag-list event-tag-list--compact">
+                          {event.tags.map((tag) => <span className="event-tag" key={tag}>#{eventTagLabel(tag)}</span>)}
+                        </div>
+                      )}
                       <small>
                         {isHost
                           ? "Організатор"
@@ -217,7 +277,9 @@ export default function EventsPage() {
             </div>
           ) : (
             <div className="empty-state compact">
-              {filter === "mine"
+              {tagFilter.length > 0
+                ? "За обраними тегами подій немає."
+                : filter === "mine"
                 ? "У вас ще немає подій."
                 : filter === "friends"
                   ? "У друзів немає доступних подій."

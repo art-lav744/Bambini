@@ -4,6 +4,7 @@ import BottomNav from "../components/BottomNav.jsx";
 import MapLibreMap from "../components/MapLibreMap.jsx";
 import { filterMapEvents, MAP_EVENT_FILTER_OPTIONS, normalizeMapEventFilter } from "../mapEventFilter.js";
 import { filterMapPeople, MAP_PEOPLE_FILTER_OPTIONS, normalizeMapPeopleFilter } from "../mapPeopleFilter.js";
+import { EVENT_TAG_OPTIONS, filterEventsByTags, normalizeEventTags, toggleEventTag } from "../eventTags.js";
 import { ensureCurrentUser } from "../userSession.js";
 
 const LOCATION_UPLOAD_INTERVAL_MS = 8000;
@@ -13,6 +14,7 @@ const EVENT_POLL_INTERVAL_MS = 20000;
 const SERVER_RETRY_INTERVAL_MS = 10000;
 const PEOPLE_FILTER_STORAGE_KEY = "bambini:map:people-filter";
 const EVENT_FILTER_STORAGE_KEY = "bambini:map:event-filter";
+const EVENT_TAG_FILTER_STORAGE_KEY = "bambini:map:event-tag-filter";
 
 function initialPeopleFilter() {
   try {
@@ -27,6 +29,14 @@ function initialEventFilter() {
     return normalizeMapEventFilter(localStorage.getItem(EVENT_FILTER_STORAGE_KEY));
   } catch {
     return "all";
+  }
+}
+
+function initialEventTagFilter() {
+  try {
+    return normalizeEventTags(JSON.parse(localStorage.getItem(EVENT_TAG_FILTER_STORAGE_KEY) || "[]"), Number.POSITIVE_INFINITY);
+  } catch {
+    return [];
   }
 }
 
@@ -74,8 +84,10 @@ export default function MapPage() {
   const [serverOnline, setServerOnline] = useState(false);
   const [peopleFilter, setPeopleFilter] = useState(initialPeopleFilter);
   const [eventFilter, setEventFilter] = useState(initialEventFilter);
+  const [eventTagFilter, setEventTagFilter] = useState(initialEventTagFilter);
   const [peopleFilterExpanded, setPeopleFilterExpanded] = useState(false);
   const [eventFilterExpanded, setEventFilterExpanded] = useState(false);
+  const [eventTagFilterExpanded, setEventTagFilterExpanded] = useState(false);
 
   const lastUploadAtRef = useRef(0);
   const watchIdRef = useRef(null);
@@ -253,10 +265,10 @@ export default function MapPage() {
     () => filterMapPeople(visibleLocations, peopleFilter),
     [peopleFilter, visibleLocations]
   );
-  const displayedEvents = useMemo(
-    () => filterMapEvents(eventPins, eventFilter, user?.id),
-    [eventFilter, eventPins, user?.id]
-  );
+  const displayedEvents = useMemo(() => filterEventsByTags(
+    filterMapEvents(eventPins, eventFilter, user?.id),
+    eventTagFilter
+  ), [eventFilter, eventPins, eventTagFilter, user?.id]);
   const locationStatus = currentLocation
     ? `${displayedLocations.length} людей • ${displayedEvents.length} подій${serverOnline ? "" : " • локально"}`
     : !window.isSecureContext ? "Карта доступна • GPS потребує HTTPS"
@@ -334,6 +346,47 @@ export default function MapPage() {
                   }}
                 >
                   {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className={`map-layer-filter map-tag-filter${eventTagFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label="Фільтр подій за тегами">
+          <button
+            className={`map-layer-filter__label${eventTagFilterExpanded ? " is-expanded" : ""}`}
+            type="button"
+            aria-expanded={eventTagFilterExpanded}
+            aria-controls="map-tag-filter-options"
+            onClick={() => setEventTagFilterExpanded((expanded) => !expanded)}
+          >
+            Теги{eventTagFilter.length ? ` ${eventTagFilter.length}` : ""}
+          </button>
+          {eventTagFilterExpanded && (
+            <div className="map-tag-filter__options" id="map-tag-filter-options">
+              <button
+                className={eventTagFilter.length === 0 ? "is-active" : ""}
+                type="button"
+                aria-pressed={eventTagFilter.length === 0}
+                onClick={() => {
+                  setEventTagFilter([]);
+                  try { localStorage.setItem(EVENT_TAG_FILTER_STORAGE_KEY, "[]"); } catch { /* Session-only filter. */ }
+                }}
+              >
+                Усі теги
+              </button>
+              {EVENT_TAG_OPTIONS.map((tag) => (
+                <button
+                  key={tag.value}
+                  className={eventTagFilter.includes(tag.value) ? "is-active" : ""}
+                  type="button"
+                  aria-pressed={eventTagFilter.includes(tag.value)}
+                  onClick={() => setEventTagFilter((current) => {
+                    const next = toggleEventTag(current, tag.value, Number.POSITIVE_INFINITY);
+                    try { localStorage.setItem(EVENT_TAG_FILTER_STORAGE_KEY, JSON.stringify(next)); } catch { /* Session-only filter. */ }
+                    return next;
+                  })}
+                >
+                  {tag.label}
                 </button>
               ))}
             </div>

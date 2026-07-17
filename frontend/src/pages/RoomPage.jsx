@@ -3,10 +3,12 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import EventLocationPicker from "../components/EventLocationPicker.jsx";
+import EventTagPicker from "../components/EventTagPicker.jsx";
 import { EVENT_PINS } from "../components/EventPinPreview.jsx";
 import MapLibreMap from "../components/MapLibreMap.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 import { eventDateTimeToLocal, formatEventDateTime, localDateTimeToUtc } from "../eventFormat.js";
+import { eventTagLabel, normalizeEventTags } from "../eventTags.js";
 
 const ROOM_REFRESH_MS = 10000;
 const ROOM_LOCATION_UPLOAD_MS = 8000;
@@ -28,6 +30,7 @@ function eventEditorValues(activity) {
   return {
     title: activity.title || "",
     description: activity.description || "",
+    tags: normalizeEventTags(activity.tags),
     visibility: activity.visibility || "public",
     image_url: activity.image_url || "",
     capacity: activity.capacity ?? null,
@@ -186,6 +189,9 @@ export default function RoomPage() {
 
   const isHost = Boolean(user && activity && activity.host_user_id === user.id);
   const isParticipant = Boolean(user && participants.some((participant) => participant.user_id === user.id));
+  const directionsUrl = activity?.latitude != null && activity?.longitude != null
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${activity.latitude},${activity.longitude}`)}`
+    : "";
 
   async function joinEvent() {
     if (!user || !activity || joining || isParticipant) return;
@@ -303,6 +309,7 @@ export default function RoomPage() {
       const payload = {
         title: editForm.title,
         description: editForm.description,
+        tags: editForm.tags,
         visibility: editForm.visibility,
         capacity: editForm.capacity,
         pin_type: editForm.pin_type,
@@ -446,8 +453,18 @@ export default function RoomPage() {
                 <span className="badge">{activity.visibility === "friends" ? "Лише друзі" : activity.visibility === "private" ? "Приватна" : "Публічна"}</span>
               </div>
               {activity.description && <p className="room-sheet__hint">{activity.description}</p>}
+              {activity.tags?.length > 0 && (
+                <div className="event-tag-list" aria-label="Теги події">
+                  {activity.tags.map((tag) => <span className="event-tag" key={tag}>#{eventTagLabel(tag)}</span>)}
+                </div>
+              )}
 
               <div className="event-room-actions">
+                {directionsUrl && (
+                  <a className="button secondary event-directions-button" href={directionsUrl} target="_blank" rel="noreferrer">
+                    Маршрут у Google Maps ↗
+                  </a>
+                )}
                 {!isParticipant && (
                   <button className="button primary" type="button" onClick={joinEvent} disabled={joining}>
                     {joining ? "Приєднання..." : "Приєднатися до події"}
@@ -511,6 +528,7 @@ export default function RoomPage() {
             <form className="event-room-view room-event-editor" onSubmit={saveEvent}>
               <label>Назва<input name="title" value={editForm.title} onChange={updateEditField} minLength="3" required /></label>
               <label>Опис<textarea name="description" value={editForm.description} onChange={updateEditField} rows="3" /></label>
+              <EventTagPicker value={editForm.tags} onChange={(tags) => setEditForm((current) => ({ ...current, tags }))} />
               <div className="room-event-editor__columns">
                 <label>Початок<input type="datetime-local" name="start_time" value={editForm.start_time} onChange={updateEditField} required /></label>
                 <label>Завершення<input type="datetime-local" name="end_time" value={editForm.end_time} min={editForm.start_time} onChange={updateEditField} /></label>

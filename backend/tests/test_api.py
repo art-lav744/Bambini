@@ -167,7 +167,13 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
 
         # Organizers can edit event details and every other participant receives
         # a durable notification for both edits and deletion.
-        editable_event = create_event(client, alice, title="Editable event")
+        editable_event = create_event(
+            client,
+            alice,
+            title="Editable event",
+            tags=["спорт", "football", "SPORT", "music"],
+        )
+        assert editable_event["tags"] == ["sport", "football", "music"]
         assert client.post(
             f"/activities/{editable_event['code']}/join",
             json={}, headers=auth_header(bob["token"]),
@@ -187,6 +193,7 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
                 "visibility": "friends",
                 "capacity": 4,
                 "pin_type": "football",
+                "tags": ["football", "walk"],
                 "start_time": new_start.isoformat(),
                 "end_time": (new_start + timedelta(hours=2)).isoformat(),
                 "latitude": 48.93,
@@ -196,7 +203,21 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
         )
         assert edited.status_code == 200, edited.text
         assert edited.json()["title"] == "Edited event"
+        assert edited.json()["tags"] == ["football", "walk"]
         assert edited.json()["latitude"] == 48.93
+
+        too_many_tags = client.patch(
+            f"/activities/{editable_event['code']}",
+            json={"tags": ["sport", "football", "basketball", "volleyball", "tennis", "running"]},
+            headers=auth_header(alice["token"]),
+        )
+        assert too_many_tags.status_code == 422
+        unknown_tag = client.patch(
+            f"/activities/{editable_event['code']}",
+            json={"tags": ["not-a-preset"]},
+            headers=auth_header(alice["token"]),
+        )
+        assert unknown_tag.status_code == 422
         participant_rows = client.get(
             f"/activities/{editable_event['code']}/participants",
             headers=auth_header(bob["token"]),

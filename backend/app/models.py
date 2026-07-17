@@ -44,9 +44,26 @@ def _require_aware_datetime(value: datetime | None, field_name: str) -> datetime
 
 
 ACTIVITY_TAGS = (
-    "sport", "football", "basketball", "volleyball", "tennis", "running",
-    "cycling", "walk", "picnic", "hiking", "music", "cinema",
-    "board-games", "party", "coffee", "family", "kids", "networking",
+    "sport", "football", "basketball", "volleyball", "tennis", "table-tennis",
+    "badminton", "padel-squash", "running", "cycling", "skate-roller", "swimming-pool",
+    "water-sports", "martial-arts", "gymnastics-acro", "climbing", "extreme-sports", "winter-sports",
+    "chess", "billiards-bowling", "golf", "walk", "picnic", "hiking",
+    "camping", "excursion", "fishing-hunting", "stargazing", "birdwatching", "music-concert",
+    "music-fest", "opera-ballet", "theater", "cinema-openair", "standup-comedy", "karaoke",
+    "dj-set", "jam-session", "musical-instrument-lessons", "art-exhibition", "museum", "literature-club",
+    "poetry-night", "painting-drawing", "sculpture-pottery", "photography", "handicraft", "modelling",
+    "dance-bachata", "dance-modern", "board-games", "rpg-dnd", "pub-quiz", "gaming-pc-console",
+    "esports", "anime-cosplay", "comic-con", "coffee", "tea-ceremony", "wine-tasting",
+    "craft-beer", "cocktail-party", "food-court", "restaurant-opening", "cooking-masterclass", "vegan-vegetarian",
+    "party-home", "night-club", "bar-hopping", "pool-party", "networking", "speed-dating",
+    "business-conference", "startup-pitch", "it-meetup", "marketing-pr", "crypto-web3", "investing-finance",
+    "e-commerce", "lecture", "seminar-training", "language-club", "science-pop", "tedx-format",
+    "oratory-skills", "family-day", "kids-entertainment", "kids-development", "parenting-club", "baby-fairs",
+    "fitness-group", "yoga-stretching", "meditation-sound-healing", "psychology-group", "beauty-day", "healthy-lifestyle",
+    "spa-sauna", "charity-auction", "volunteer-work", "eco-cleanup", "animal-shelter-help", "blood-donation",
+    "urbanism-community", "garage-sale", "flea-market", "pop-up-market", "fashion-show", "book-fair",
+    "auto-show", "moto-meetup", "karting-race", "test-drive", "pets-walk", "pet-exhibition",
+    "pet-friendly-event", "music", "cinema", "party", "family", "kids",
 )
 ACTIVITY_TAG_ALIASES = {
     "спорт": "sport",

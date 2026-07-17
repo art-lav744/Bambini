@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 import { formatEventDateTime } from "../eventFormat.js";
 import { EVENT_TAG_OPTIONS, eventTagLabel, filterEventsByTags, toggleEventTag } from "../eventTags.js";
@@ -12,6 +13,7 @@ const FILTERS = [
   { value: "friends", label: "Друзі" },
   { value: "public", label: "Публічні" },
 ];
+const EVENTS_REFRESH_MS = 8000;
 
 export default function EventsPage() {
   const navigate = useNavigate();
@@ -22,10 +24,12 @@ export default function EventsPage() {
   const [notifications, setNotifications] = useState([]);
   const [filter, setFilter] = useState("mine");
   const [tagFilter, setTagFilter] = useState([]);
+  const [tagFilterExpanded, setTagFilterExpanded] = useState(false);
   const [viewerLocation, setViewerLocation] = useState(null);
   const [distanceStatus, setDistanceStatus] = useState("loading");
   const [joiningId, setJoiningId] = useState(null);
   const [leavingId, setLeavingId] = useState(null);
+  const [confirmation, setConfirmation] = useState(null);
   const [error, setError] = useState("");
 
   async function loadEvents(profile) {
@@ -46,15 +50,21 @@ export default function EventsPage() {
 
   useEffect(() => {
     let active = true;
+    let intervalId;
     ensureCurrentUser()
       .then(async (profile) => {
         if (!active) return;
         setUser(profile);
         await loadEvents(profile);
+        if (!active) return;
+        intervalId = window.setInterval(() => {
+          if (document.visibilityState === "visible") loadEvents(profile);
+        }, EVENTS_REFRESH_MS);
       })
       .catch((err) => active && setError(err.message));
     return () => {
       active = false;
+      if (intervalId) window.clearInterval(intervalId);
     };
   }, []);
 
@@ -105,10 +115,17 @@ export default function EventsPage() {
     }
   }
 
-  async function leaveEvent(event) {
+  function leaveEvent(event) {
     if (!user || event.host_user_id === user.id) return;
-    if (!window.confirm(`Від’єднатися від події «${event.title}»?`)) return;
+    setConfirmation({
+      title: "Вийти з події?",
+      message: `Ви більше не будете учасником події «${event.title}».`,
+      confirmLabel: "Від’єднатися",
+      action: () => performLeaveEvent(event),
+    });
+  }
 
+  async function performLeaveEvent(event) {
     setLeavingId(event.id);
     setError("");
     try {
@@ -130,6 +147,12 @@ export default function EventsPage() {
       setError(err.message);
       await loadEvents(user);
     }
+  }
+
+  function confirmPendingAction() {
+    const action = confirmation?.action;
+    setConfirmation(null);
+    action?.();
   }
 
   return (
@@ -187,24 +210,34 @@ export default function EventsPage() {
           ))}
         </div>
 
-        <section className="event-tag-filter" aria-label="Фільтр подій за тегами">
+        <section className={`event-tag-filter${tagFilterExpanded ? " is-expanded" : ""}`} aria-label="Фільтр подій за тегами">
           <div className="event-tag-filter__heading">
-            <strong>Фільтр за тегами</strong>
+            <button
+              className="event-tag-filter__toggle"
+              type="button"
+              aria-expanded={tagFilterExpanded}
+              aria-controls="event-tag-filter-options"
+              onClick={() => setTagFilterExpanded((expanded) => !expanded)}
+            >
+              <strong>Теги{tagFilter.length ? ` ${tagFilter.length}` : ""}</strong>
+            </button>
             {tagFilter.length > 0 && <button type="button" onClick={() => setTagFilter([])}>Скинути</button>}
           </div>
-          <div className="event-tag-filter__options">
-            {EVENT_TAG_OPTIONS.map((tag) => (
-              <button
-                key={tag.value}
-                type="button"
-                className={tagFilter.includes(tag.value) ? "is-active" : ""}
-                aria-pressed={tagFilter.includes(tag.value)}
-                onClick={() => setTagFilter((current) => toggleEventTag(current, tag.value, Number.POSITIVE_INFINITY))}
-              >
-                {tag.label}
-              </button>
-            ))}
-          </div>
+          {tagFilterExpanded && (
+            <div className="event-tag-filter__options" id="event-tag-filter-options">
+              {EVENT_TAG_OPTIONS.map((tag) => (
+                <button
+                  key={tag.value}
+                  type="button"
+                  className={tagFilter.includes(tag.value) ? "is-active" : ""}
+                  aria-pressed={tagFilter.includes(tag.value)}
+                  onClick={() => setTagFilter((current) => toggleEventTag(current, tag.value, Number.POSITIVE_INFINITY))}
+                >
+                  {tag.label}
+                </button>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="event-list-section">
@@ -290,6 +323,14 @@ export default function EventsPage() {
 
         {error && <p className="error">{error}</p>}
       </div>
+      <ConfirmDialog
+        open={Boolean(confirmation)}
+        title={confirmation?.title}
+        message={confirmation?.message}
+        confirmLabel={confirmation?.confirmLabel}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={confirmPendingAction}
+      />
       <BottomNav />
     </main>
   );

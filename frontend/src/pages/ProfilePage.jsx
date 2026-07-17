@@ -25,6 +25,7 @@ export default function ProfilePage() {
   const [photoUrl, setPhotoUrl] = useState("");
   const [photoPayload, setPhotoPayload] = useState(undefined);
   const [message, setMessage] = useState("");
+  const [profileMessage, setProfileMessage] = useState("");
   const [error, setError] = useState("");
   const [savingVisibility, setSavingVisibility] = useState(false);
   const navigate = useNavigate();
@@ -67,11 +68,12 @@ export default function ProfilePage() {
     if (!user) return;
     setError("");
     setMessage("");
+    setProfileMessage("");
     try {
       const payload = { name: name.trim() };
       if (photoPayload !== undefined) payload.photo_url = photoPayload;
       applyProfile(await api.updateUser(user.id, payload));
-      setMessage("Профіль збережено");
+      setProfileMessage("Профіль збережено");
     } catch (err) {
       setError(err.message);
     }
@@ -81,6 +83,7 @@ export default function ProfilePage() {
     if (!user || savingVisibility || visibility === currentVisibility(user)) return;
     setError("");
     setMessage("");
+    setProfileMessage("");
     setSavingVisibility(true);
     try {
       const updated = await api.setLocationVisibility(user.id, visibility);
@@ -94,6 +97,7 @@ export default function ProfilePage() {
   }
 
   async function copyValue(value, fallbackMessage) {
+    setProfileMessage("");
     try {
       await navigator.clipboard.writeText(value);
       setMessage("Код скопійовано");
@@ -143,6 +147,7 @@ export default function ProfilePage() {
               <label>Фото профілю<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" onChange={(event) => selectPhoto(event.target.files?.[0])} /></label>
               {photoUrl && <button className="button secondary" type="button" onClick={() => { setPhotoUrl(""); setPhotoPayload(""); }}>Видалити фото</button>}
               <button className="button primary" type="submit">Зберегти профіль</button>
+              {profileMessage && <p className="success-message profile-form__message">{profileMessage}</p>}
             </form>
 
             <div style={{ marginTop: 64, marginBottom: 18 }}>

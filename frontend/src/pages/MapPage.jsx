@@ -285,7 +285,7 @@ export default function MapPage() {
         <div><strong>{user?.name || "Bambini"}</strong><span>{locationStatus}</span></div>
       </div>
       <div className="map-filter-stack">
-        <div className="map-layer-filter map-people-filter" role="group" aria-label="Кого показувати на карті">
+        <div className={`map-layer-filter map-people-filter${peopleFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label="Кого показувати на карті">
           <button
             className={`map-layer-filter__label${peopleFilterExpanded ? " is-expanded" : ""}`}
             type="button"
@@ -318,7 +318,7 @@ export default function MapPage() {
             </div>
           )}
         </div>
-        <div className="map-layer-filter map-event-filter" role="group" aria-label="Які події показувати на карті">
+        <div className={`map-layer-filter map-event-filter${eventFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label="Які події показувати на карті">
           <button
             className={`map-layer-filter__label${eventFilterExpanded ? " is-expanded" : ""}`}
             type="button"
@@ -394,7 +394,11 @@ export default function MapPage() {
         </div>
       </div>
       {serverError && <div className="map-server-toast">{serverError}</div>}
-      {(locationError || actionMessage) && <div className="map-global-toast">{locationError || actionMessage}</div>}
+      {(locationError || actionMessage) && (
+        <div className={`map-global-toast${actionMessage && !locationError ? " is-success" : ""}`}>
+          {locationError || actionMessage}
+        </div>
+      )}
       <BottomNav />
     </main>
   );

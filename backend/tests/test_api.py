@@ -193,7 +193,7 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
                 "visibility": "friends",
                 "capacity": 4,
                 "pin_type": "football",
-                "tags": ["football", "walk"],
+                "tags": ["table-tennis", "pet-friendly-event"],
                 "start_time": new_start.isoformat(),
                 "end_time": (new_start + timedelta(hours=2)).isoformat(),
                 "latitude": 48.93,
@@ -203,7 +203,7 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
         )
         assert edited.status_code == 200, edited.text
         assert edited.json()["title"] == "Edited event"
-        assert edited.json()["tags"] == ["football", "walk"]
+        assert edited.json()["tags"] == ["table-tennis", "pet-friendly-event"]
         assert edited.json()["latitude"] == 48.93
 
         too_many_tags = client.patch(

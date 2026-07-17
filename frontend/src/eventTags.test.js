@@ -8,6 +8,7 @@ test("preset event tags are deduplicated and limited to five", () => {
     ["sport", "music", "walk", "coffee", "family"]
   );
   assert.deepEqual(toggleEventTag(["sport", "music", "walk", "coffee", "family"], "kids"), ["sport", "music", "walk", "coffee", "family"]);
+  assert.deepEqual(normalizeEventTags(["table-tennis", "pet-friendly-event"]), ["table-tennis", "pet-friendly-event"]);
 });
 
 test("event tag filter matches any selected tag and empty means all", () => {

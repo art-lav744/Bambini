@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import EventLocationPicker from "../components/EventLocationPicker.jsx";
 import EventTagPicker from "../components/EventTagPicker.jsx";
 import { EVENT_PINS } from "../components/EventPinPreview.jsx";
@@ -64,6 +65,7 @@ export default function RoomPage() {
   const [editLocation, setEditLocation] = useState(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const [confirmation, setConfirmation] = useState(null);
   const [panelDragOffset, setPanelDragOffset] = useState(0);
   const [panelDragging, setPanelDragging] = useState(false);
   const watchRef = useRef(null);
@@ -78,6 +80,10 @@ export default function RoomPage() {
     ]);
 
     if (activityResult.status === "rejected") {
+      if (activityResult.reason?.status === 404) {
+        navigate("/events", { replace: true });
+        return;
+      }
       setError(activityResult.reason?.message || "Не вдалося завантажити подію");
       return;
     }
@@ -89,7 +95,7 @@ export default function RoomPage() {
     } else {
       setError(`Подію завантажено, але список учасників не оновлено: ${participantsResult.reason?.message || "помилка сервера"}`);
     }
-  }, [code]);
+  }, [code, navigate]);
 
   useEffect(() => {
     let active = true;
@@ -207,9 +213,17 @@ export default function RoomPage() {
     }
   }
 
-  async function leaveEvent() {
+  function leaveEvent() {
     if (!user || !activity || isHost || !isParticipant || leaving) return;
-    if (!window.confirm(`Від’єднатися від події «${activity.title}»?`)) return;
+    setConfirmation({
+      title: "Вийти з події?",
+      message: `Ви більше не будете учасником події «${activity.title}».`,
+      confirmLabel: "Від’єднатися",
+      action: performLeaveEvent,
+    });
+  }
+
+  async function performLeaveEvent() {
     setLeaving(true);
     setError("");
     try {
@@ -221,9 +235,17 @@ export default function RoomPage() {
     }
   }
 
-  async function removeParticipant(participant) {
+  function removeParticipant(participant) {
     if (!activity || !isHost || participant.is_host || removingUserId !== null) return;
-    if (!window.confirm(`Видалити «${participant.name}» з події?`)) return;
+    setConfirmation({
+      title: "Видалити учасника?",
+      message: `${participant.name} буде видалено зі списку учасників події.`,
+      confirmLabel: "Видалити",
+      action: () => performRemoveParticipant(participant),
+    });
+  }
+
+  async function performRemoveParticipant(participant) {
     setRemovingUserId(participant.user_id);
     setError("");
     try {
@@ -331,9 +353,17 @@ export default function RoomPage() {
     }
   }
 
-  async function deleteEvent() {
+  function deleteEvent() {
     if (!activity || !isHost || deleting) return;
-    if (!window.confirm(`Назавжди видалити подію «${activity.title}»?`)) return;
+    setConfirmation({
+      title: "Видалити подію?",
+      message: `Подію «${activity.title}» буде видалено назавжди. Учасники отримають повідомлення.`,
+      confirmLabel: "Видалити подію",
+      action: performDeleteEvent,
+    });
+  }
+
+  async function performDeleteEvent() {
     setDeleting(true);
     setError("");
     try {
@@ -357,6 +387,12 @@ export default function RoomPage() {
     } catch {
       // Pointer capture is optional in older mobile webviews.
     }
+  }
+
+  function confirmPendingAction() {
+    const action = confirmation?.action;
+    setConfirmation(null);
+    action?.();
   }
 
   function handlePanelPointerMove(event) {
@@ -418,7 +454,6 @@ export default function RoomPage() {
       <div className="room-map-header">
         <Link to="/map" className="room-map-header__back" aria-label="Повернутися на карту">←</Link>
         <div className="room-map-header__title"><strong>{activity.title}</strong><span>Код: {activity.code}</span></div>
-        <button className="room-map-header__toggle" type="button" aria-label={panelOpen ? "Згорнути" : "Розгорнути"} onClick={() => setPanelOpen((value) => !value)}>{panelOpen ? "↓" : "↑"}</button>
       </div>
 
       <aside
@@ -446,11 +481,12 @@ export default function RoomPage() {
           {sheetView === "details" && (
             <section className="event-room-view">
               {activity.image_url && <div className="event-room-sheet__image"><img src={activity.image_url} alt="" /></div>}
-              <div className="event-room-sheet__time">{formatEventDateTime(activity.start_time, activity.end_time)}</div>
-              <div className="room-sheet__meta">
-                <div><span className="eyebrow">Точок події</span><strong>1</strong></div>
-                {isHost && <span className="badge">Організатор</span>}
-                <span className="badge">{activity.visibility === "friends" ? "Лише друзі" : activity.visibility === "private" ? "Приватна" : "Публічна"}</span>
+              <div className="event-room-sheet__summary">
+                <div className="event-room-sheet__time">{formatEventDateTime(activity.start_time, activity.end_time)}</div>
+                <div className="room-sheet__meta">
+                  {isHost && <span className="badge">Організатор</span>}
+                  <span className="badge">{activity.visibility === "friends" ? "Лише друзі" : activity.visibility === "private" ? "Приватна" : "Публічна"}</span>
+                </div>
               </div>
               {activity.description && <p className="room-sheet__hint">{activity.description}</p>}
               {activity.tags?.length > 0 && (
@@ -499,24 +535,28 @@ export default function RoomPage() {
                       <strong>{participant.name}</strong>
                       <span>{participant.is_host ? "Організатор" : isSelf ? "Це ви" : participant.friendship_status === "accepted" ? "У друзях" : "Учасник"}</span>
                     </div>
-                    {!isSelf && (canAccept || canRequest) && (
-                      <button className="small-action" type="button" onClick={() => updateFriendship(participant)} disabled={friendActionUserId !== null}>
-                        {friendActionUserId === participant.user_id ? "..." : canAccept ? "Прийняти" : "Додати в друзі"}
-                      </button>
-                    )}
-                    {!isSelf && participant.friendship_status === "pending" && !canAccept && (
-                      <span className="event-participant-row__pending">Запит надіслано</span>
-                    )}
-                    {isHost && !participant.is_host && (
-                      <button
-                        className="event-participant-row__remove"
-                        type="button"
-                        aria-label={`Видалити ${participant.name} з події`}
-                        onClick={() => removeParticipant(participant)}
-                        disabled={removingUserId !== null}
-                      >
-                        {removingUserId === participant.user_id ? "…" : "×"}
-                      </button>
+                    {!isSelf && (
+                      <div className="event-participant-row__actions">
+                        {(canAccept || canRequest) && (
+                          <button className="small-action" type="button" onClick={() => updateFriendship(participant)} disabled={friendActionUserId !== null}>
+                            {friendActionUserId === participant.user_id ? "..." : canAccept ? "Прийняти" : "Додати в друзі"}
+                          </button>
+                        )}
+                        {participant.friendship_status === "pending" && !canAccept && (
+                          <span className="event-participant-row__pending">Запит надіслано</span>
+                        )}
+                        {isHost && !participant.is_host && (
+                          <button
+                            className="event-participant-row__remove"
+                            type="button"
+                            aria-label={`Видалити ${participant.name} з події`}
+                            onClick={() => removeParticipant(participant)}
+                            disabled={removingUserId !== null}
+                          >
+                            {removingUserId === participant.user_id ? "…" : "×"}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </article>
                 );
@@ -574,6 +614,14 @@ export default function RoomPage() {
           {error && <p className="error">{error}</p>}
         </div>
       </aside>
+      <ConfirmDialog
+        open={Boolean(confirmation)}
+        title={confirmation?.title}
+        message={confirmation?.message}
+        confirmLabel={confirmation?.confirmLabel}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={confirmPendingAction}
+      />
       <BottomNav />
     </main>
   );

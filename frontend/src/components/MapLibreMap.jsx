@@ -474,27 +474,6 @@ function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
   };
 }
 
-function createCheckpointMarker(checkpoint) {
-  const element = document.createElement("button");
-  element.className = "checkpoint-marker";
-  element.type = "button";
-  element.setAttribute("aria-label", checkpoint.title);
-  element.innerHTML = `<span>${checkpoint.order_index || "•"}</span>`;
-
-  const popup = new maplibregl.Popup({ offset: 18 }).setHTML(
-    `<div class="map-popup"><strong>${escapeHtml(checkpoint.title)}</strong>${
-      checkpoint.description ? `<p>${escapeHtml(checkpoint.description)}</p>` : ""
-    }</div>`
-  );
-
-  const lngLat = normalizeLngLat(checkpoint);
-  if (!lngLat) return null;
-
-  return new maplibregl.Marker({ element, anchor: "center" })
-    .setLngLat(lngLat)
-    .setPopup(popup);
-}
-
 function createUserMarkerElement(user, isCurrent) {
   const element = document.createElement("button");
   element.type = "button";
@@ -553,10 +532,7 @@ function userSignature(user, isCurrent) {
 }
 
 export default function MapLibreMap({
-  checkpoints = [],
   eventPins = [],
-  canEdit = false,
-  onCreateCheckpoint,
   enableLocation = true,
   currentUser = null,
   currentLocation = null,
@@ -570,10 +546,8 @@ export default function MapLibreMap({
   const openEvent = useCallback((code) => navigate(`/room/${code}`), [navigate]);
   const containerRef = useRef(null);
   const mapRef = useRef(null);
-  const checkpointMarkersRef = useRef([]);
   const eventMarkersRef = useRef([]);
   const eventMarkersByKeyRef = useRef(new Map());
-  const selectionMarkerRef = useRef(null);
   const userMarkersRef = useRef(new Map());
   const layoutFrameRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
@@ -667,7 +641,6 @@ export default function MapLibreMap({
 
     mapRef.current = map;
     return () => {
-      checkpointMarkersRef.current.forEach((marker) => marker.remove());
       eventMarkersRef.current.forEach((entry) => {
         entry.destroy?.();
         entry.marker.remove();
@@ -678,7 +651,6 @@ export default function MapLibreMap({
         entry.marker.remove();
       });
       userMarkersRef.current.clear();
-      selectionMarkerRef.current?.remove();
       saveMapView(map);
       resizeObserver.disconnect();
       themeObserver.disconnect();
@@ -692,17 +664,6 @@ export default function MapLibreMap({
       mapRef.current = null;
     };
   }, [scheduleMarkerLayout]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-
-    checkpointMarkersRef.current.forEach((marker) => marker.remove());
-    checkpointMarkersRef.current = checkpoints
-      .map((checkpoint) => createCheckpointMarker(checkpoint))
-      .filter(Boolean);
-    checkpointMarkersRef.current.forEach((marker) => marker.addTo(map));
-  }, [checkpoints, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -889,51 +850,6 @@ export default function MapLibreMap({
 
     scheduleMarkerLayout();
   }, [currentLocation, currentUser, friendLocations, mapReady, onAddFriend, scheduleMarkerLayout]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || !canEdit || !onCreateCheckpoint) return undefined;
-
-    function handleMapClick(event) {
-      selectionMarkerRef.current?.remove();
-      const element = document.createElement("button");
-      element.className = "checkpoint-marker checkpoint-marker--new";
-      element.type = "button";
-      element.innerHTML = "<span>+</span>";
-
-      const marker = new maplibregl.Marker({ element, anchor: "center" })
-        .setLngLat(event.lngLat)
-        .addTo(map);
-      selectionMarkerRef.current = marker;
-
-      const title = window.prompt("Назва контрольної точки:");
-      if (!title?.trim()) {
-        marker.remove();
-        selectionMarkerRef.current = null;
-        return;
-      }
-
-      Promise.resolve(
-        onCreateCheckpoint({
-          title: title.trim(),
-          description: "",
-          latitude: event.lngLat.lat,
-          longitude: event.lngLat.lng,
-          order_index: checkpoints.length + 1,
-        })
-      ).finally(() => {
-        marker.remove();
-        selectionMarkerRef.current = null;
-      });
-    }
-
-    map.on("click", handleMapClick);
-    map.getCanvas().style.cursor = "crosshair";
-    return () => {
-      map.off("click", handleMapClick);
-      map.getCanvas().style.cursor = "";
-    };
-  }, [canEdit, checkpoints.length, mapReady, onCreateCheckpoint]);
 
   function locateUser() {
     setLocationError("");

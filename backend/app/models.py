@@ -298,34 +298,6 @@ class ParticipantRead(SQLModel):
     joined_at: datetime
 
 
-class Checkpoint(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    activity_id: int = Field(foreign_key="activity.id", index=True, ondelete="CASCADE")
-    title: str = Field(min_length=2, max_length=120)
-    description: str = Field(default="", max_length=500)
-    latitude: float
-    longitude: float
-    order_index: int = 0
-
-
-class CheckpointCreate(SQLModel):
-    title: str = Field(min_length=2, max_length=120)
-    description: str = Field(default="", max_length=500)
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
-    order_index: int = 0
-
-    @field_validator("title", mode="before")
-    @classmethod
-    def validate_title(cls, value):
-        return _clean_required(str(value or ""), "title", 2, 120)
-
-
-class CheckpointRead(CheckpointCreate):
-    id: int
-    activity_id: int
-
-
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(min_length=2, max_length=60)

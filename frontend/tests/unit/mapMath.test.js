@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { eventsWithDistance, formatEventDistance, getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers } from "./mapMath.js";
+import { eventsWithDistance, formatEventDistance, getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers } from "../../src/mapMath.js";
 
 test("two attendees are placed on opposite sides", () => {
   assert.deepEqual(getEventOrbitPatternOffsets(2, 40), [[-40, 0], [40, 0]]);

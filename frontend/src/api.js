@@ -1,4 +1,4 @@
-const CONFIGURED_API_URL = (import.meta.env.VITE_API_URL || "").trim();
+const CONFIGURED_API_URL = (import.meta.env?.VITE_API_URL || "").trim();
 const AUTH_TOKEN_KEY = "outdoor_auth_token";
 
 function resolveApiUrl() {
@@ -125,8 +125,6 @@ export const api = {
   deleteActivity: (code) => request(`/activities/${code}`, { method: "DELETE" }),
   getUserActivities: (userId) => request(`/users/${userId}/activities`),
   getParticipants: (code) => request(`/activities/${code}/participants`),
-  getCheckpoints: (code) => request(`/activities/${code}/checkpoints`),
-  createCheckpoint: (code, payload) => request(`/activities/${code}/checkpoints`, { method: "POST", body: JSON.stringify(payload) }),
   getNotifications: (userId) => request(`/users/${userId}/notifications`),
   markNotificationRead: (userId, notificationId) => request(`/users/${userId}/notifications/${notificationId}/read`, { method: "POST" }),
 };

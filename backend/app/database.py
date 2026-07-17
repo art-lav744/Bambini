@@ -36,6 +36,8 @@ def _run_lightweight_sqlite_migrations() -> None:
         return
 
     with engine.begin() as connection:
+        connection.execute(text('DROP TABLE IF EXISTS checkpoint'))
+
         user_columns = _columns(connection, "user")
         if user_columns and "profile_code" in user_columns:
             connection.execute(text("DROP INDEX IF EXISTS ix_user_profile_code"))

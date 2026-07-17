@@ -1,17 +1,6 @@
 import base64
 import hashlib
-import os
-import sys
-import tempfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-
-TEST_ROOT = Path(tempfile.mkdtemp(prefix="bambini-tests-"))
-TEST_DB = TEST_ROOT / "test_app.db"
-os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB.as_posix()}"
-os.environ["MEDIA_ROOT"] = str(TEST_ROOT / "media")
-os.environ["GOOGLE_CLIENT_ID"] = "test-google-client"
-os.environ["CORS_ORIGINS"] = "http://testserver"
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -19,7 +8,7 @@ from sqlmodel import Session, select
 
 from app.database import engine
 from app.main import app
-from app.models import Activity, Checkpoint, EventLocation, EventMember, EventOwner, User, UserLocation, UserNotification
+from app.models import Activity, EventLocation, EventMember, EventOwner, User, UserLocation, UserNotification
 
 
 def auth_header(token):
@@ -278,12 +267,6 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
             headers=auth_header(alice["token"]),
         ).json()
         assert bob["user"]["id"] not in {item["user_id"] for item in participants}
-        checkpoint = client.post(
-            f"/activities/{managed_event['code']}/checkpoints",
-            json={"title": "Cleanup point", "description": "", "latitude": 48.9, "longitude": 24.7, "order_index": 1},
-            headers=auth_header(alice["token"]),
-        )
-        assert checkpoint.status_code == 201, checkpoint.text
         forbidden_delete = client.delete(
             f"/activities/{managed_event['code']}",
             headers=auth_header(bob["token"]),
@@ -299,7 +282,6 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
             assert session.get(EventOwner, managed_event["id"]) is None
             assert session.get(EventLocation, managed_event["id"]) is None
             assert session.exec(select(EventMember).where(EventMember.activity_id == managed_event["id"])).first() is None
-            assert session.exec(select(Checkpoint).where(Checkpoint.activity_id == managed_event["id"])).first() is None
 
         # Verified Google identities are linked by sub and work repeatedly.
         import google.oauth2.id_token
@@ -322,7 +304,7 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
 
 
 
-def test_legacy_password_upgrade_logout_media_clear_and_checkpoint_permissions():
+def test_legacy_password_upgrade_logout_and_media_clear():
     password = "oldsecurepass"
     salt = b"0123456789abcdef"
     old_derived = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
@@ -365,21 +347,6 @@ def test_legacy_password_upgrade_logout_media_clear_and_checkpoint_permissions()
         )
         assert cleared.status_code == 200, cleared.text
         assert cleared.json()["photo_url"] is None
-
-        attendee = register(client, "Attendee", "attendee2@example.com")
-        event = create_event(client, owner_auth, title="Checkpoint permissions")
-        client.post(
-            f"/activities/{event['code']}/join", json={}, headers=auth_header(attendee["token"]),
-        )
-        checkpoint = {"title": "Start", "description": "", "latitude": 48.9, "longitude": 24.7, "order_index": 1}
-        forbidden = client.post(
-            f"/activities/{event['code']}/checkpoints", json=checkpoint, headers=auth_header(attendee["token"]),
-        )
-        assert forbidden.status_code == 403
-        created = client.post(
-            f"/activities/{event['code']}/checkpoints", json=checkpoint, headers=auth_header(owner_auth["token"]),
-        )
-        assert created.status_code == 201, created.text
 
         # Logout invalidates the exact bearer token server-side.
         logged_out = client.post("/logout", headers=auth_header(legacy_token))

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../../src/styles.css", import.meta.url), "utf8");
 
 function firstRuleBody(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

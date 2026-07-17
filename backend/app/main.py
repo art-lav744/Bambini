@@ -36,9 +36,6 @@ from .models import (
     ActivityUpdate,
     AuthRead,
     AuthSession,
-    Checkpoint,
-    CheckpointCreate,
-    CheckpointRead,
     EventLocation,
     EventMember,
     EventOwner,
@@ -1185,7 +1182,6 @@ def delete_activity(
         activity.title,
     )
     dependent_rows = [
-        *session.exec(select(Checkpoint).where(Checkpoint.activity_id == activity.id)).all(),
         *session.exec(select(Participant).where(Participant.activity_id == activity.id)).all(),
         *session.exec(select(EventMember).where(EventMember.activity_id == activity.id)).all(),
     ]
@@ -1296,32 +1292,6 @@ def list_friend_activities(user_id: int, current_user: User = Depends(get_curren
         (Activity.id.in_(ids)) & (Activity.visibility.in_(["public", "friends"])) & active_activity_condition()
     ).order_by(Activity.start_time, Activity.created_at.desc())).all() if ids else []
     return serialize_activities(activities, session)
-
-
-# Checkpoint creation now matches the frontend API. Only the event owner may edit.
-@app.get("/activities/{code}/checkpoints", response_model=list[CheckpointRead])
-def list_checkpoints(code: str, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    activity = get_activity_or_404(code, session)
-    ensure_can_view_activity(activity, current_user, session)
-    return session.exec(select(Checkpoint).where(Checkpoint.activity_id == activity.id).order_by(Checkpoint.order_index, Checkpoint.id)).all()
-
-
-@app.post("/activities/{code}/checkpoints", response_model=CheckpointRead, status_code=201)
-def create_checkpoint(
-    code: str,
-    data: CheckpointCreate,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
-):
-    activity = get_activity_or_404(code, session)
-    owner = session.get(EventOwner, activity.id)
-    if owner is None or owner.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Лише організатор може додавати точки")
-    checkpoint = Checkpoint(activity_id=activity.id, **data.model_dump())
-    session.add(checkpoint)
-    session.commit()
-    session.refresh(checkpoint)
-    return checkpoint
 
 
 # Serve a production Vite build from the same process. API routes above remain

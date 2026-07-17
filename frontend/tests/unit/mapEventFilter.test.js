@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filterMapEvents, normalizeMapEventFilter } from "./mapEventFilter.js";
+import { filterMapEvents, normalizeMapEventFilter } from "../../src/mapEventFilter.js";
 
 const events = [
   { id: 1, host_user_id: 7, participant_user_ids: [] },

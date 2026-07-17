@@ -67,20 +67,46 @@ Set `GOOGLE_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` to the same Google OAuth web 
 
 ## Tests
 
-Backend:
+Unit tests live in `backend/tests/unit` and `frontend/tests/unit`. Backend API integration tests live in `backend/tests/integration`.
+
+Backend — install the test dependencies once:
 
 ```powershell
 cd backend
-python -m pip install -r requirements-dev.txt
-python -m pytest -q
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ```
 
-Frontend:
+Run only backend unit tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\unit -q
+```
+
+Run only backend API integration tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\integration -q
+```
+
+Run every backend test:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Frontend — install dependencies once, then run unit tests:
 
 ```powershell
 cd frontend
-npm ci
-npm run check
+npm.cmd ci
+npm.cmd run test:unit
+```
+
+Run frontend unit tests and verify the production build together:
+
+```powershell
+npm.cmd run check
 ```
 
 The backend suite uses a temporary database and temporary media directory. It does not modify `backend/app.db` or `backend/media`.

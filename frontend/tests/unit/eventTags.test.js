@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filterEventsByTags, normalizeEventTags, toggleEventTag } from "./eventTags.js";
+import { filterEventsByTags, normalizeEventTags, toggleEventTag } from "../../src/eventTags.js";
 
 test("preset event tags are deduplicated and limited to five", () => {
   assert.deepEqual(

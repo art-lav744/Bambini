@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filterMapPeople, normalizeMapPeopleFilter } from "./mapPeopleFilter.js";
+import { filterMapPeople, normalizeMapPeopleFilter } from "../../src/mapPeopleFilter.js";
 
 const locations = [
   { user_id: 1, friendship_status: "accepted" },

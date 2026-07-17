@@ -100,6 +100,38 @@ class ActivityCreate(ActivityBase):
         return self
 
 
+class ActivityUpdate(SQLModel):
+    title: str | None = Field(default=None, min_length=3, max_length=120)
+    description: str | None = Field(default=None, max_length=1000)
+    visibility: str | None = Field(default=None, min_length=6, max_length=20)
+    image_url: str | None = Field(default=None, max_length=3_000_000)
+    capacity: int | None = Field(default=None, ge=1, le=50)
+    pin_type: str | None = Field(default=None, max_length=30)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def validate_title(cls, value):
+        if value is None:
+            return None
+        return _clean_required(str(value), "title", 3, 120)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def validate_description(cls, value):
+        if value is None:
+            return None
+        return str(value).strip()
+
+    @field_validator("start_time", "end_time", mode="after")
+    @classmethod
+    def validate_datetime(cls, value, info):
+        return _require_aware_datetime(value, info.field_name)
+
+
 class ActivityJoin(SQLModel):
     user_id: int | None = None
 
@@ -147,6 +179,10 @@ class EventParticipantRead(SQLModel):
     photo_url: str | None
     is_host: bool
     joined_at: datetime
+    friend_code: str | None = None
+    friendship_id: int | None = None
+    friendship_status: str | None = None
+    friendship_direction: str | None = None
 
 
 # Legacy tables retained so existing local databases remain readable.
@@ -351,3 +387,24 @@ class FriendLocationRead(SQLModel):
     presence: str
     friend_code: str | None = None
     friendship_status: str | None = None
+
+
+class UserNotification(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    kind: str = Field(max_length=40)
+    message: str = Field(max_length=500)
+    event_code: str | None = Field(default=None, max_length=6)
+    event_title: str = Field(default="", max_length=120)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+    read_at: datetime | None = None
+
+
+class UserNotificationRead(SQLModel):
+    id: int
+    kind: str
+    message: str
+    event_code: str | None
+    event_title: str
+    created_at: datetime
+    read_at: datetime | None

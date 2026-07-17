@@ -19,6 +19,11 @@ function toLocalInput(date) {
   return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
 }
 
+export function eventDateTimeToLocal(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : toLocalInput(date);
+}
+
 export function defaultEventStartTime() {
   const date = new Date(Date.now() + 60 * 60 * 1000);
   date.setMinutes(Math.ceil(date.getMinutes() / 15) * 15, 0, 0);

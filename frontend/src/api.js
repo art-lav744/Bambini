@@ -118,6 +118,7 @@ export const api = {
   getVisibleActivities: () => request("/activities/visible/list"),
   getFriendActivities: (userId) => request(`/users/${userId}/friend-activities`),
   getActivity: (code) => request(`/activities/${code}`),
+  updateActivity: (code, payload) => request(`/activities/${code}`, { method: "PATCH", body: JSON.stringify(payload) }),
   joinActivity: (code, userId) => request(`/activities/${code}/join`, { method: "POST", body: JSON.stringify({ user_id: userId }) }),
   leaveActivity: (code, userId) => request(`/activities/${code}/members/${userId}`, { method: "DELETE" }),
   removeActivityMember: (code, userId) => request(`/activities/${code}/members/${userId}`, { method: "DELETE" }),
@@ -126,4 +127,6 @@ export const api = {
   getParticipants: (code) => request(`/activities/${code}/participants`),
   getCheckpoints: (code) => request(`/activities/${code}/checkpoints`),
   createCheckpoint: (code, payload) => request(`/activities/${code}/checkpoints`, { method: "POST", body: JSON.stringify(payload) }),
+  getNotifications: (userId) => request(`/users/${userId}/notifications`),
+  markNotificationRead: (userId, notificationId) => request(`/users/${userId}/notifications/${notificationId}/read`, { method: "POST" }),
 };

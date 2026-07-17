@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 
 from app.database import engine
 from app.main import app
-from app.models import Activity, Checkpoint, EventLocation, EventMember, EventOwner, User, UserLocation
+from app.models import Activity, Checkpoint, EventLocation, EventMember, EventOwner, User, UserLocation, UserNotification
 
 
 def auth_header(token):
@@ -164,6 +164,71 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
         pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII="
         image_event = create_event(client, alice, title="Image event", image_url=pixel)
         assert image_event["image_url"].startswith("/media/events/")
+
+        # Organizers can edit event details and every other participant receives
+        # a durable notification for both edits and deletion.
+        editable_event = create_event(client, alice, title="Editable event")
+        assert client.post(
+            f"/activities/{editable_event['code']}/join",
+            json={}, headers=auth_header(bob["token"]),
+        ).status_code == 201
+        forbidden_edit = client.patch(
+            f"/activities/{editable_event['code']}",
+            json={"title": "Unauthorized edit"},
+            headers=auth_header(bob["token"]),
+        )
+        assert forbidden_edit.status_code == 403
+        new_start = datetime.now(timezone.utc) + timedelta(hours=3)
+        edited = client.patch(
+            f"/activities/{editable_event['code']}",
+            json={
+                "title": "Edited event",
+                "description": "Updated details",
+                "visibility": "friends",
+                "capacity": 4,
+                "pin_type": "football",
+                "start_time": new_start.isoformat(),
+                "end_time": (new_start + timedelta(hours=2)).isoformat(),
+                "latitude": 48.93,
+                "longitude": 24.72,
+            },
+            headers=auth_header(alice["token"]),
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["title"] == "Edited event"
+        assert edited.json()["latitude"] == 48.93
+        participant_rows = client.get(
+            f"/activities/{editable_event['code']}/participants",
+            headers=auth_header(bob["token"]),
+        ).json()
+        alice_participant = next(item for item in participant_rows if item["user_id"] == alice["user"]["id"])
+        assert alice_participant["friend_code"] == alice["user"]["friend_code"]
+        assert alice_participant["friendship_status"] == "pending"
+        edit_notifications = client.get(
+            f"/users/{bob['user']['id']}/notifications",
+            headers=auth_header(bob["token"]),
+        )
+        assert edit_notifications.status_code == 200
+        edit_notice = next(item for item in edit_notifications.json() if item["kind"] == "event_updated")
+        assert "Edited event" in edit_notice["message"]
+        assert client.post(
+            f"/users/{bob['user']['id']}/notifications/{edit_notice['id']}/read",
+            headers=auth_header(bob["token"]),
+        ).status_code == 204
+        deleted_editable = client.delete(
+            f"/activities/{editable_event['code']}",
+            headers=auth_header(alice["token"]),
+        )
+        assert deleted_editable.status_code == 204, deleted_editable.text
+        delete_notifications = client.get(
+            f"/users/{bob['user']['id']}/notifications",
+            headers=auth_header(bob["token"]),
+        ).json()
+        assert any(item["kind"] == "event_deleted" and "Edited event" in item["message"] for item in delete_notifications)
+        with Session(engine) as session:
+            assert session.exec(select(UserNotification).where(
+                UserNotification.user_id == bob["user"]["id"]
+            )).first() is not None
 
         # Only the owner can remove another member or delete the event.
         managed_event = create_event(client, alice, title="Managed event")

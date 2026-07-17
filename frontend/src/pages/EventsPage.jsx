@@ -17,6 +17,7 @@ export default function EventsPage() {
   const [myEvents, setMyEvents] = useState([]);
   const [friendEvents, setFriendEvents] = useState([]);
   const [publicEvents, setPublicEvents] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [filter, setFilter] = useState("mine");
   const [joiningId, setJoiningId] = useState(null);
   const [leavingId, setLeavingId] = useState(null);
@@ -27,11 +28,13 @@ export default function EventsPage() {
       api.getUserActivities(profile.id),
       api.getFriendActivities(profile.id),
       api.getPublicActivities(),
+      api.getNotifications(profile.id),
     ]);
-    const [mine, friends, publicData] = results;
+    const [mine, friends, publicData, notificationData] = results;
     if (mine.status === "fulfilled") setMyEvents(mine.value);
     if (friends.status === "fulfilled") setFriendEvents(friends.value);
     if (publicData.status === "fulfilled") setPublicEvents(publicData.value);
+    if (notificationData.status === "fulfilled") setNotifications(notificationData.value);
     const failure = results.find((result) => result.status === "rejected");
     setError(failure ? `Частину списків не оновлено: ${failure.reason?.message || "помилка сервера"}` : "");
   }
@@ -88,11 +91,39 @@ export default function EventsPage() {
     }
   }
 
+  async function dismissNotification(notificationId) {
+    if (!user) return;
+    setNotifications((current) => current.filter((item) => item.id !== notificationId));
+    try {
+      await api.markNotificationRead(user.id, notificationId);
+    } catch (err) {
+      setError(err.message);
+      await loadEvents(user);
+    }
+  }
+
   return (
     <main className="main-tab-page">
       <div className="tab-page__content">
         <div className="eyebrow">Активності</div>
         <h1>Події</h1>
+
+        {notifications.length > 0 && (
+          <section className="event-notifications" aria-label="Повідомлення про події">
+            {notifications.map((notification) => (
+              <article className="event-notification" key={notification.id}>
+                <div>
+                  <strong>{notification.kind === "event_deleted" ? "Подію видалено" : "Подію оновлено"}</strong>
+                  <span>{notification.message}</span>
+                </div>
+                {notification.kind === "event_updated" && notification.event_code && (
+                  <Link to={`/room/${notification.event_code}`}>Переглянути</Link>
+                )}
+                <button type="button" aria-label="Закрити повідомлення" onClick={() => dismissNotification(notification.id)}>×</button>
+              </article>
+            ))}
+          </section>
+        )}
 
         <div className="event-actions">
           <Link className="event-action-card" to="/create">

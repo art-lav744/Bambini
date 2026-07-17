@@ -32,6 +32,7 @@ from .models import (
     ActivityCreate,
     ActivityJoin,
     ActivityRead,
+    ActivityUpdate,
     AuthRead,
     AuthSession,
     Checkpoint,
@@ -49,10 +50,13 @@ from .models import (
     LocationSharingUpdate,
     LocationUpdate,
     LocationVisibilityUpdate,
+    Participant,
     User,
     UserCreate,
     UserLocation,
     UserLogin,
+    UserNotification,
+    UserNotificationRead,
     UserRead,
     UserUpdate,
     utc_now,
@@ -409,8 +413,8 @@ def serialize_activities(activities: Iterable[Activity], session: Session) -> li
             pin_type=activity.pin_type,
             participant_count=len(members),
             participant_user_ids=[member.user_id for member in members],
-            start_time=activity.start_time,
-            end_time=activity.end_time,
+            start_time=normalized_utc(activity.start_time) if activity.start_time else None,
+            end_time=normalized_utc(activity.end_time) if activity.end_time else None,
             created_at=activity.created_at,
             host_user_id=owner.user_id if owner else None,
             latitude=location.latitude if location else None,
@@ -421,6 +425,30 @@ def serialize_activities(activities: Iterable[Activity], session: Session) -> li
 
 def activity_to_read(activity: Activity, session: Session) -> ActivityRead:
     return serialize_activities([activity], session)[0]
+
+
+def notify_event_members(
+    session: Session,
+    activity_id: int,
+    actor_user_id: int,
+    kind: str,
+    message: str,
+    event_code: str,
+    event_title: str,
+) -> None:
+    memberships = session.exec(
+        select(EventMember).where(EventMember.activity_id == activity_id)
+    ).all()
+    for membership in memberships:
+        if membership.user_id == actor_user_id:
+            continue
+        session.add(UserNotification(
+            user_id=membership.user_id,
+            kind=kind,
+            message=message,
+            event_code=event_code,
+            event_title=event_title,
+        ))
 
 
 @asynccontextmanager
@@ -972,6 +1000,96 @@ def get_activity(code: str, current_user: User = Depends(get_current_user), sess
     return activity_to_read(activity, session)
 
 
+@app.patch("/activities/{code}", response_model=ActivityRead)
+def update_activity(
+    code: str,
+    data: ActivityUpdate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    activity = get_activity_or_404(code, session)
+    owner = session.get(EventOwner, activity.id)
+    if owner is None or owner.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Лише організатор може редагувати подію")
+
+    updates = data.model_dump(exclude_unset=True)
+    if not updates:
+        return activity_to_read(activity, session)
+
+    if "title" in updates and updates["title"] is None:
+        raise HTTPException(status_code=422, detail="Назва події є обов’язковою")
+    if "start_time" in updates and updates["start_time"] is None:
+        raise HTTPException(status_code=422, detail="Час початку є обов’язковим")
+
+    next_start = updates.get("start_time", activity.start_time)
+    next_end = updates.get("end_time", activity.end_time)
+    if next_start is None:
+        raise HTTPException(status_code=422, detail="Час початку є обов’язковим")
+    if next_end is not None and next_end <= next_start:
+        raise HTTPException(status_code=422, detail="Час завершення має бути пізніше часу початку")
+
+    if "capacity" in updates and updates["capacity"] is not None:
+        member_count = len(session.exec(
+            select(EventMember.id).where(EventMember.activity_id == activity.id)
+        ).all())
+        if updates["capacity"] < member_count:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Місткість не може бути меншою за поточну кількість учасників ({member_count})",
+            )
+
+    if "visibility" in updates:
+        updates["visibility"] = normalize_event_visibility(updates["visibility"])
+    if "pin_type" in updates and updates["pin_type"] not in PIN_TYPES:
+        raise HTTPException(status_code=422, detail="Невідомий тип позначки події")
+
+    previous_image = activity.image_url
+    stored_image = previous_image
+    if "image_url" in updates:
+        stored_image = store_image(updates.pop("image_url"), "events")
+
+    latitude = updates.pop("latitude", None)
+    longitude = updates.pop("longitude", None)
+    location_was_requested = latitude is not None or longitude is not None
+    location = session.get(EventLocation, activity.id)
+    if location_was_requested:
+        if location is None and (latitude is None or longitude is None):
+            raise HTTPException(status_code=422, detail="Потрібні обидві координати події")
+        if location is None:
+            location = EventLocation(activity_id=activity.id, latitude=latitude, longitude=longitude)
+        else:
+            if latitude is not None:
+                location.latitude = latitude
+            if longitude is not None:
+                location.longitude = longitude
+        session.add(location)
+
+    for field, value in updates.items():
+        setattr(activity, field, "" if field == "description" and value is None else value)
+    activity.image_url = stored_image
+    session.add(activity)
+    notify_event_members(
+        session,
+        activity.id,
+        current_user.id,
+        "event_updated",
+        f"Подію «{activity.title}» було оновлено організатором.",
+        activity.code,
+        activity.title,
+    )
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if stored_image != previous_image:
+            remove_stored_image(stored_image, "events")
+        raise HTTPException(status_code=409, detail="Не вдалося зберегти зміни події")
+    if stored_image != previous_image:
+        remove_stored_image(previous_image, "events")
+    session.refresh(activity)
+    return activity_to_read(activity, session)
+
+
 @app.post("/activities/{code}/join", response_model=ActivityRead, status_code=201)
 def join_activity(
     code: str,
@@ -1043,8 +1161,33 @@ def delete_activity(
     if owner is None or owner.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Лише організатор може видалити подію")
     image_url = activity.image_url
+    notify_event_members(
+        session,
+        activity.id,
+        current_user.id,
+        "event_deleted",
+        f"Подію «{activity.title}» було видалено організатором.",
+        activity.code,
+        activity.title,
+    )
+    dependent_rows = [
+        *session.exec(select(Checkpoint).where(Checkpoint.activity_id == activity.id)).all(),
+        *session.exec(select(Participant).where(Participant.activity_id == activity.id)).all(),
+        *session.exec(select(EventMember).where(EventMember.activity_id == activity.id)).all(),
+    ]
+    location = session.get(EventLocation, activity.id)
+    if location is not None:
+        dependent_rows.append(location)
+    dependent_rows.append(owner)
+    for row in dependent_rows:
+        session.delete(row)
+    session.flush()
     session.delete(activity)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Не вдалося видалити пов’язані дані події")
     remove_stored_image(image_url, "events")
     return None
 
@@ -1057,15 +1200,60 @@ def list_participants(code: str, current_user: User = Depends(get_current_user),
     memberships = session.exec(select(EventMember).where(EventMember.activity_id == activity.id).order_by(EventMember.joined_at)).all()
     user_ids = [row.user_id for row in memberships]
     users = {row.id: row for row in session.exec(select(User).where(User.id.in_(user_ids))).all()} if user_ids else {}
+    friendships = session.exec(select(Friendship).where(
+        or_(Friendship.requester_id == current_user.id, Friendship.addressee_id == current_user.id)
+    )).all()
+    friendships_by_user = {
+        row.addressee_id if row.requester_id == current_user.id else row.requester_id: row
+        for row in friendships
+    }
     return [
         EventParticipantRead(
             user_id=member.user_id, name=users[member.user_id].name,
             photo_url=users[member.user_id].photo_url,
             is_host=bool(owner and owner.user_id == member.user_id),
             joined_at=member.joined_at,
+            friend_code=users[member.user_id].friend_code if member.user_id != current_user.id else None,
+            friendship_id=friendships_by_user[member.user_id].id if member.user_id in friendships_by_user else None,
+            friendship_status=friendships_by_user[member.user_id].status if member.user_id in friendships_by_user else None,
+            friendship_direction=(
+                "outgoing" if friendships_by_user[member.user_id].requester_id == current_user.id else "incoming"
+            ) if member.user_id in friendships_by_user else None,
         )
         for member in memberships if member.user_id in users
     ]
+
+
+@app.get("/users/{user_id}/notifications", response_model=list[UserNotificationRead])
+def list_user_notifications(
+    user_id: int,
+    unread_only: bool = True,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    require_same_user(user_id, current_user)
+    statement = select(UserNotification).where(UserNotification.user_id == current_user.id)
+    if unread_only:
+        statement = statement.where(UserNotification.read_at.is_(None))
+    return session.exec(statement.order_by(UserNotification.created_at.desc()).limit(30)).all()
+
+
+@app.post("/users/{user_id}/notifications/{notification_id}/read", status_code=204)
+def mark_user_notification_read(
+    user_id: int,
+    notification_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    require_same_user(user_id, current_user)
+    notification = session.get(UserNotification, notification_id)
+    if notification is None or notification.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
+    if notification.read_at is None:
+        notification.read_at = utc_now()
+        session.add(notification)
+        session.commit()
+    return None
 
 
 @app.get("/users/{user_id}/activities", response_model=list[ActivityRead])

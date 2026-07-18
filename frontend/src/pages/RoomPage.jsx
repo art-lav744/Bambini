@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api.js";
+import AppIcon from "../components/AppIcon.jsx";
 import BottomNav from "../components/BottomNav.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import EventLocationPicker from "../components/EventLocationPicker.jsx";
@@ -452,7 +453,7 @@ export default function RoomPage() {
       />
 
       <div className="room-map-header">
-        <Link to="/map" className="room-map-header__back" aria-label="Повернутися на карту">←</Link>
+        <Link to="/map" className="room-map-header__back" aria-label="Повернутися на карту"><AppIcon name="arrow-left" /></Link>
         <div className="room-map-header__title"><strong>{activity.title}</strong><span>Код: {activity.code}</span></div>
       </div>
 
@@ -498,7 +499,7 @@ export default function RoomPage() {
               <div className="event-room-actions">
                 {directionsUrl && (
                   <a className="button secondary event-directions-button" href={directionsUrl} target="_blank" rel="noreferrer">
-                    Маршрут у Google Maps ↗
+                    <span>Маршрут у Google Maps</span><AppIcon name="external-link" />
                   </a>
                 )}
                 {!isParticipant && (
@@ -553,7 +554,7 @@ export default function RoomPage() {
                             onClick={() => removeParticipant(participant)}
                             disabled={removingUserId !== null}
                           >
-                            {removingUserId === participant.user_id ? "…" : "×"}
+                            <AppIcon name={removingUserId === participant.user_id ? "loader" : "close"} className={removingUserId === participant.user_id ? "app-icon--spin" : ""} />
                           </button>
                         )}
                       </div>

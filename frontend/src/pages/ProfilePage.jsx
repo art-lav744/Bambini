@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import AppIcon from "../components/AppIcon.jsx";
 import BottomNav from "../components/BottomNav.jsx";
 import MascotPreview from "../components/MascotPreview.jsx";
 import { DEFAULT_CUSTOMIZATION, normalizeCustomization } from "../customization.js";
@@ -143,9 +144,9 @@ export default function ProfilePage() {
         </div>
 
         <button className="event-action-card profile-style-button" type="button" onClick={() => navigate("/customization")}>
-          <span className="event-action-card__symbol" aria-hidden="true">◐</span>
+          <span className="event-action-card__symbol" aria-hidden="true"><AppIcon name="palette" /></span>
           <div><strong>Стиль</strong><span>Змінити персонажа та тему застосунку</span></div>
-          <span className="profile-style-button__arrow" aria-hidden="true">→</span>
+          <span className="profile-style-button__arrow" aria-hidden="true"><AppIcon name="arrow-right" /></span>
         </button>
 
         {user && (

@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
+import { api } from "../api.js";
 import {
+  clearCurrentUser,
+  getPendingVerificationEmail,
+  hasPendingEmailVerification,
   loginWithEmail,
   loginWithGoogle,
   registerWithEmail,
+  resendPendingEmailVerification,
+  verifyPendingEmail,
 } from "../userSession.js";
 
 function loadGoogleScript() {
@@ -31,10 +37,34 @@ function loadGoogleScript() {
 
 export default function LoginPage({ onAuthenticated }) {
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState("login");
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [mode, setMode] = useState(() => hasPendingEmailVerification() ? "verify" : "login");
+  const [form, setForm] = useState({ name: "", email: getPendingVerificationEmail(), password: "" });
+  const [verificationCode, setVerificationCode] = useState("");
+  const [resendCooldown, setResendCooldown] = useState(() => hasPendingEmailVerification() ? 60 : 0);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      setResendCooldown((current) => Math.max(0, current - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendCooldown > 0]);
+
+  useEffect(() => {
+    if (mode !== "verify" || !hasPendingEmailVerification()) return undefined;
+    let active = true;
+    api.getEmailVerificationStatus()
+      .then((status) => {
+        if (!active) return;
+        setResendCooldown(status.resend_after_seconds || 0);
+        if (status.email) setForm((current) => ({ ...current, email: status.email }));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [mode]);
 
   useEffect(() => {
     let active = true;
@@ -52,8 +82,13 @@ export default function LoginPage({ onAuthenticated }) {
           callback: async (response) => {
             try {
               setLoading(true);
-              const user = await loginWithGoogle(response.credential);
-              onAuthenticated(user);
+              const result = await loginWithGoogle(response.credential);
+              if (result.verificationRequired) {
+                setMode("verify");
+                setResendCooldown(60);
+              } else {
+                onAuthenticated(result.user);
+              }
             } catch (err) {
               setError(err.message || "Не вдалося увійти через Google.");
               setLoading(false);
@@ -62,12 +97,15 @@ export default function LoginPage({ onAuthenticated }) {
           auto_select: false,
           cancel_on_tap_outside: false,
         });
-        window.google?.accounts?.id.renderButton(document.getElementById("google-signin"), {
-          theme: "filled_black",
-          size: "large",
-          text: "signin_with",
-          shape: "pill",
-        });
+        const googleButton = document.getElementById("google-signin");
+        if (googleButton) {
+          window.google?.accounts?.id.renderButton(googleButton, {
+            theme: "filled_black",
+            size: "large",
+            text: "signin_with",
+            shape: "pill",
+          });
+        }
         setLoading(false);
       })
       .catch(() => {
@@ -88,7 +126,7 @@ export default function LoginPage({ onAuthenticated }) {
     setSubmitting(true);
 
     try {
-      const user =
+      const result =
         mode === "register"
           ? await registerWithEmail({
               name: form.name.trim(),
@@ -99,12 +137,59 @@ export default function LoginPage({ onAuthenticated }) {
               email: form.email.trim(),
               password: form.password,
             });
-      onAuthenticated(user);
+      if (result.verificationRequired) {
+        setMode("verify");
+        setVerificationCode("");
+        setResendCooldown(60);
+        setMessage(`Ми надіслали код на ${form.email.trim().toLowerCase()}`);
+      } else {
+        onAuthenticated(result.user);
+      }
     } catch (err) {
       setError(err.message || "Не вдалося завершити авторизацію.");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleVerification(event) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    setSubmitting(true);
+    try {
+      const user = await verifyPendingEmail(verificationCode);
+      onAuthenticated(user);
+    } catch (err) {
+      setError(err.message || "Не вдалося підтвердити email.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleResend() {
+    setError("");
+    setMessage("");
+    setSubmitting(true);
+    try {
+      const status = await resendPendingEmailVerification();
+      setResendCooldown(status.resend_after_seconds || 60);
+      setMessage("Новий код надіслано.");
+    } catch (err) {
+      setError(err.message || "Не вдалося надіслати новий код.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function useAnotherAccount() {
+    clearCurrentUser();
+    setMode("login");
+    setForm({ name: "", email: "", password: "" });
+    setVerificationCode("");
+    setResendCooldown(0);
+    setMessage("");
+    setError("");
   }
 
   return (
@@ -113,11 +198,46 @@ export default function LoginPage({ onAuthenticated }) {
         <div className="profile-hero">
           <div>
             <div className="eyebrow">Bambini</div>
-            <h1>Увійдіть, щоб продовжити</h1>
+            <h1>{mode === "verify" ? "Підтвердьте email" : "Увійдіть, щоб продовжити"}</h1>
           </div>
         </div>
 
         <section className="card" style={{ marginTop: 24 }}>
+          {mode === "verify" ? (
+            <div className="email-verification">
+              <p className="muted">
+                Введіть шестизначний код, надісланий на <strong>{form.email || getPendingVerificationEmail()}</strong>.
+              </p>
+              <form className="form" onSubmit={handleVerification}>
+                <label>
+                  Код підтвердження
+                  <input
+                    className="email-verification__code"
+                    value={verificationCode}
+                    onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    maxLength="6"
+                    placeholder="000000"
+                    autoFocus
+                    required
+                  />
+                </label>
+                <button className="button primary" type="submit" disabled={submitting || verificationCode.length !== 6}>
+                  {submitting ? "Перевірка…" : "Підтвердити email"}
+                </button>
+              </form>
+              <div className="email-verification__actions">
+                <button className="button secondary" type="button" disabled={submitting || resendCooldown > 0} onClick={handleResend}>
+                  {resendCooldown > 0 ? `Надіслати знову через ${resendCooldown} с` : "Надіслати код знову"}
+                </button>
+                <button className="button secondary" type="button" disabled={submitting} onClick={useAnotherAccount}>
+                  Інший акаунт
+                </button>
+              </div>
+            </div>
+          ) : <>
           <div className="auth-mode-switch" style={{ display: "flex", gap: 8, marginBottom: 16 }}>
             <button
               type="button"
@@ -177,7 +297,9 @@ export default function LoginPage({ onAuthenticated }) {
             <div id="google-signin" style={{ marginTop: 24, display: "flex", justifyContent: "center" }} />
           )}
           {loading && <p className="muted" style={{ marginTop: 16 }}>Підключення Google…</p>}
-          {error && <p className="error">{error}</p>}
+          </>}
+          {message && <p className="success-message auth-message">{message}</p>}
+          {error && <p className="error-message auth-message">{error}</p>}
         </section>
       </div>
     </main>

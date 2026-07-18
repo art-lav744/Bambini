@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import AppIcon from "./AppIcon.jsx";
 
 export default function ConfirmDialog({ open, title, message, confirmLabel = "Підтвердити", onCancel, onConfirm }) {
   const cancelButtonRef = useRef(null);
@@ -23,7 +24,7 @@ export default function ConfirmDialog({ open, title, message, confirmLabel = "П
   return (
     <div className="app-confirm-backdrop" role="presentation">
       <section className="app-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title" aria-describedby="app-confirm-message">
-        <div className="app-confirm-dialog__mark">!</div>
+        <div className="app-confirm-dialog__mark"><AppIcon name="alert" /></div>
         <h2 id="app-confirm-title">{title}</h2>
         <p id="app-confirm-message">{message}</p>
         <div className="app-confirm-dialog__actions">

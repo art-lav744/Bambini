@@ -89,10 +89,16 @@ ACTIVITY_TAG_ALIASES = {
 _ACTIVITY_TAG_LOOKUP = {tag.casefold(): tag for tag in ACTIVITY_TAGS} | ACTIVITY_TAG_ALIASES
 
 ORCA_SKINS = {"default", "dolphin"}
-HEADER_STYLES = {"none", "default", "space", "hawaii", "otaku", "skater"}
+HEADER_STYLES = {"default", "ukrainian", "space", "hawaii", "otaku", "skater"}
 BOTTOM_STYLES = {
-    "none", "default", "cottagecore", "cyberpunk", "glitch", "hawaii", "mexica",
+    "default", "ukrainian", "cottagecore", "cyberpunk", "glitch", "hawaii", "mexica",
     "otaku", "skater", "space", "y2k", "gimnazia",
+}
+BACKGROUND_STYLES = {
+    "default", "sunflowers", "sakura", "tropical-beach", "city", "shop",
+    "skatepark", "space", "fountain", "garden", "color-splash", "digital-world",
+    "pixel-world", "concert", "candy-land", "pirate-bay", "ice-castle", "volcano",
+    "medieval-castle", "desert", "arcade",
 }
 THEMES = {"dark", "neon", "blue", "green", "red", "sunset"}
 REMOVED_THEMES = {"light", "forest"}
@@ -341,11 +347,15 @@ class UserCustomizationBase(SQLModel):
     @field_validator("header_style", mode="before")
     @classmethod
     def validate_header_style(cls, value):
+        if str(value or "").strip().lower() == "none":
+            return "default"
         return _customization_choice(value, HEADER_STYLES, "header_style")
 
     @field_validator("bottom_style", mode="before")
     @classmethod
     def validate_bottom_style(cls, value):
+        if str(value or "").strip().lower() == "none":
+            return "default"
         return _customization_choice(value, BOTTOM_STYLES, "bottom_style")
 
     @field_validator("theme", mode="before")
@@ -358,8 +368,8 @@ class UserCustomizationBase(SQLModel):
     @model_validator(mode="after")
     def prevent_dolphin_equipment(self):
         if self.orca_skin == "dolphin":
-            self.header_style = "none"
-            self.bottom_style = "none"
+            self.header_style = "default"
+            self.bottom_style = "default"
         return self
 
 
@@ -371,10 +381,59 @@ class UserCustomization(UserCustomizationBase, table=True):
 
 class UserCustomizationRead(UserCustomizationBase):
     user_id: int
+    background_style: str = "default"
 
 
 class UserCustomizationUpdate(UserCustomizationBase):
-    pass
+    background_style: str = Field(default="default", max_length=50)
+
+    @field_validator("background_style", mode="before")
+    @classmethod
+    def validate_background_style(cls, value):
+        return _customization_choice(value, BACKGROUND_STYLES, "background_style")
+
+
+class UserCosmeticSelection(SQLModel, table=True):
+    __tablename__ = "user_cosmetic_selections"
+
+    user_id: int = Field(primary_key=True, foreign_key="user.id", ondelete="CASCADE")
+    background_style: str = Field(default="default", max_length=50)
+
+    @field_validator("background_style", mode="before")
+    @classmethod
+    def validate_background_style(cls, value):
+        return _customization_choice(value, BACKGROUND_STYLES, "background_style")
+
+
+class UserAchievement(SQLModel, table=True):
+    __tablename__ = "user_achievements"
+    __table_args__ = (UniqueConstraint("user_id", "achievement_id", name="uq_user_achievement"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    achievement_id: str = Field(index=True, max_length=60)
+    unlocked_at: datetime = Field(default_factory=utc_now)
+
+
+class AchievementRead(SQLModel):
+    id: str
+    category: str
+    category_label: str
+    title: str
+    description: str
+    reward_name: str
+    reward_field: str
+    reward_value: str
+    progress: int
+    target: int
+    unlocked: bool
+    unlocked_at: datetime | None = None
+
+
+class AchievementSummaryRead(SQLModel):
+    unlocked_count: int
+    total_count: int
+    achievements: list[AchievementRead] = Field(default_factory=list)
 
 
 class UserCreate(SQLModel):
@@ -444,6 +503,26 @@ class GoogleLogin(SQLModel):
 class AuthRead(SQLModel):
     token: str
     user: UserRead
+    email_verification_required: bool = False
+
+
+class EmailVerificationCodeInput(SQLModel):
+    code: str = Field(min_length=6, max_length=6)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def validate_code(cls, value):
+        normalized = re.sub(r"\s+", "", str(value or ""))
+        if not re.fullmatch(r"\d{6}", normalized):
+            raise ValueError("code must contain exactly 6 digits")
+        return normalized
+
+
+class EmailVerificationStatusRead(SQLModel):
+    required: bool
+    email: str
+    expires_at: datetime | None = None
+    resend_after_seconds: int = 0
 
 
 class AuthSession(SQLModel, table=True):
@@ -452,6 +531,17 @@ class AuthSession(SQLModel, table=True):
     token_hash: str = Field(index=True, unique=True, max_length=64)
     created_at: datetime = Field(default_factory=utc_now)
     expires_at: datetime
+
+
+class EmailVerificationChallenge(SQLModel, table=True):
+    __tablename__ = "email_verification_challenges"
+
+    user_id: int = Field(primary_key=True, foreign_key="user.id", ondelete="CASCADE")
+    code_hash: str = Field(max_length=64)
+    expires_at: datetime
+    last_sent_at: datetime
+    attempts: int = Field(default=0, ge=0)
+    verified_at: datetime | None = None
 
 
 class Friendship(SQLModel, table=True):
@@ -520,6 +610,7 @@ class FriendLocationRead(SQLModel):
     orca_skin: str = "default"
     header_style: str = "default"
     bottom_style: str = "default"
+    background_style: str = "default"
     theme: str = "dark"
 
 

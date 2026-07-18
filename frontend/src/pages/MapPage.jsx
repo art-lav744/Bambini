@@ -3,7 +3,7 @@ import { ApiError, api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import MapLibreMap from "../components/MapLibreMap.jsx";
 import { filterMapEvents, MAP_EVENT_FILTER_OPTIONS, normalizeMapEventFilter } from "../mapEventFilter.js";
-import { filterMapPeople, MAP_PEOPLE_FILTER_OPTIONS, normalizeMapPeopleFilter } from "../mapPeopleFilter.js";
+import { filterMapPeopleWithEventParticipants, MAP_PEOPLE_FILTER_OPTIONS, normalizeMapPeopleFilter } from "../mapPeopleFilter.js";
 import { EVENT_TAG_OPTIONS, filterEventsByTags, normalizeEventTags, toggleEventTag } from "../eventTags.js";
 import { DEFAULT_CUSTOMIZATION, normalizeCustomization } from "../customization.js";
 import { ensureCurrentUser } from "../userSession.js";
@@ -265,14 +265,14 @@ export default function MapPage() {
   }, [serverOnline, user]);
 
   const visibility = locationVisibility(user);
-  const displayedLocations = useMemo(
-    () => filterMapPeople(visibleLocations, peopleFilter),
-    [peopleFilter, visibleLocations]
-  );
   const displayedEvents = useMemo(() => filterEventsByTags(
     filterMapEvents(eventPins, eventFilter, user?.id),
     eventTagFilter
   ), [eventFilter, eventPins, eventTagFilter, user?.id]);
+  const displayedLocations = useMemo(
+    () => filterMapPeopleWithEventParticipants(visibleLocations, peopleFilter, displayedEvents, user?.id),
+    [displayedEvents, peopleFilter, user?.id, visibleLocations]
+  );
   const locationStatus = currentLocation
     ? `${displayedLocations.length} людей • ${displayedEvents.length} подій${serverOnline ? "" : " • локально"}`
     : !window.isSecureContext ? "Карта доступна • GPS потребує HTTPS"
@@ -283,7 +283,7 @@ export default function MapPage() {
     <main className="fullscreen-map-page">
       <MapLibreMap currentUser={user} currentLocation={currentLocation} friendLocations={displayedLocations}
         eventPins={displayedEvents} onLocationFound={handleLocationFound} onJoinEvent={joinNearbyEvent}
-        onAddFriend={addVisibleUserToFriends} enableLocation />
+        onAddFriend={addVisibleUserToFriends} enableLocation autoCenterOnUser />
       <div className="map-brand-card map-user-card">
         <span className={`map-brand-card__dot${currentLocation ? " is-live" : ""}`} />
         <div><strong>{user?.name || "Bambini"}</strong><span>{locationStatus}</span></div>

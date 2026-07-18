@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
+import AppIcon from "./AppIcon.jsx";
 import { resolveMascot } from "../customization.js";
-import { getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers } from "../mapMath.js";
+import { iconSvgMarkup } from "../icons.js";
+import { getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers, prioritizeEventOrbitUsers } from "../mapMath.js";
 
 const DEFAULT_CENTER = [24.7111, 48.9226];
 const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
@@ -199,12 +201,17 @@ function initials(name = "?") {
 }
 
 function mascotPreviewHtml(customization) {
-  const { skin, header, bottom, layers } = resolveMascot(customization);
-  const label = `Сконструйований образ: ${skin.name}, ${header.name}, ${bottom.name}`;
+  const { skin, header, bottom, background, layers } = resolveMascot(customization);
+  const label = `Сконструйований образ: ${skin.name}, ${header.name}, ${bottom.name}, фон ${background.name}`;
   const images = layers.map((layer) =>
     `<img class="map-person-card__mascot-layer" src="${escapeHtml(layer.asset)}" alt="">`
   ).join("");
-  return `<div class="map-person-card__mascot" role="img" aria-label="${escapeHtml(label)}">${images}</div>`;
+  return `<div class="map-person-card__mascot mascot-background--${escapeHtml(background.id)}" role="img" aria-label="${escapeHtml(label)}">${images}</div>`;
+}
+
+function decoratePopupCloseButton(popup) {
+  const closeButton = popup.getElement()?.querySelector(".maplibregl-popup-close-button");
+  if (closeButton) closeButton.innerHTML = iconSvgMarkup("close");
 }
 
 function formatEventDateTime(value) {
@@ -369,12 +376,12 @@ function layoutEventUserGroups(eventEntries, userEntries, zoom) {
       (eventEntry.event?.participant_user_ids || []).map(Number).filter(Number.isFinite)
     );
 
-    const usersAtEvent = userEntries
-      .filter((entry) => {
+    const usersAtEvent = prioritizeEventOrbitUsers(
+      userEntries.filter((entry) => {
         if (!Number.isFinite(entry.userId) || !participantIds.has(entry.userId) || !entry.realLngLat) return false;
         return isWithinEventGeofence(eventCoords, entry.realLngLat, entry.user?.accuracy);
       })
-      .sort((a, b) => (a.isCurrent === b.isCurrent ? 0 : a.isCurrent ? -1 : 1));
+    );
 
     const visibleBadges = limitEventOrbitUsers(usersAtEvent, MAX_EVENT_ORBIT_USERS);
     syncEventOrbit(
@@ -441,8 +448,8 @@ function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
         </div>
         <h3>${escapeHtml(event.title)}</h3>
         <p>${escapeHtml(event.description || "Без опису")}</p>
-        <button class="map-selection-card__action" type="button" data-open-event="${escapeHtml(event.code)}">Відкрити подію <span>→</span></button>
-        ${canJoinNearby ? `<button class="map-selection-card__action" type="button" data-join-event="${escapeHtml(event.code)}">Приєднатися поруч <span>+</span></button>` : ""}
+        <button class="map-selection-card__action" type="button" data-open-event="${escapeHtml(event.code)}">Відкрити подію ${iconSvgMarkup("arrow-right")}</button>
+        ${canJoinNearby ? `<button class="map-selection-card__action" type="button" data-join-event="${escapeHtml(event.code)}">Приєднатися поруч ${iconSvgMarkup("plus")}</button>` : ""}
       </div>
     </article>`
   );
@@ -451,6 +458,7 @@ function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
   if (!lngLat) return null;
 
   const handlePopupOpen = () => {
+    decoratePopupCloseButton(popup);
     const action = popup.getElement()?.querySelector("[data-open-event]");
     if (action) {
       action.onclick = () => onOpenEvent?.(event.code);
@@ -540,6 +548,7 @@ function userSignature(user, isCurrent) {
     user.orca_skin || "",
     user.header_style || "",
     user.bottom_style || "",
+    user.background_style || "",
     isCurrent,
   ].join("|");
 }
@@ -553,6 +562,7 @@ export default function MapLibreMap({
   onLocationFound,
   onJoinEvent,
   onAddFriend,
+  autoCenterOnUser = false,
   className = "",
 }) {
   const navigate = useNavigate();
@@ -563,6 +573,7 @@ export default function MapLibreMap({
   const eventMarkersByKeyRef = useRef(new Map());
   const userMarkersRef = useRef(new Map());
   const layoutFrameRef = useRef(null);
+  const hasAutoCenteredOnUserRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [locationError, setLocationError] = useState("");
 
@@ -680,6 +691,18 @@ export default function MapLibreMap({
 
   useEffect(() => {
     const map = mapRef.current;
+    const currentLngLat = normalizeLngLat(currentLocation);
+    if (!autoCenterOnUser || !map || !mapReady || !currentLngLat || hasAutoCenteredOnUserRef.current) return;
+    hasAutoCenteredOnUserRef.current = true;
+    map.flyTo({
+      center: currentLngLat,
+      zoom: Math.min(MAX_ZOOM, Math.max(map.getZoom(), 15)),
+      duration: 900,
+    });
+  }, [autoCenterOnUser, currentLocation, mapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !mapReady) return;
 
     const nextEvents = new Map();
@@ -792,7 +815,7 @@ export default function MapLibreMap({
             : item.user.friendship_status === "pending"
               ? `<button class="map-selection-card__action" type="button" disabled>Запит уже надіслано</button>`
               : onAddFriend && item.user.friend_code
-                ? `<button class="map-selection-card__action" type="button" data-add-friend>Додати в друзі <span>+</span></button>`
+                ? `<button class="map-selection-card__action" type="button" data-add-friend>Додати в друзі ${iconSvgMarkup("plus")}</button>`
                 : "";
         const popup = new maplibregl.Popup({
           offset: 34,
@@ -810,6 +833,7 @@ export default function MapLibreMap({
           </article>`
         );
         const handlePopupOpen = () => {
+          decoratePopupCloseButton(popup);
           const action = popup.getElement()?.querySelector("[data-add-friend]");
           if (!action) return;
           action.onclick = async () => {
@@ -915,11 +939,7 @@ export default function MapLibreMap({
           aria-label="Показати мою геолокацію"
           title="Моя геолокація"
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-            <circle cx="12" cy="12" r="7" />
-          </svg>
+          <AppIcon name="locate" />
         </button>
       )}
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import AppIcon from "../components/AppIcon.jsx";
 import EventLocationPicker from "../components/EventLocationPicker.jsx";
 import EventTagPicker from "../components/EventTagPicker.jsx";
 import { ensureCurrentUser } from "../userSession.js";
@@ -89,7 +90,7 @@ export default function CreatePage() {
 
   return (
     <main className="form-page event-form-page">
-      <Link className="back-link" to="/events">← Назад до подій</Link>
+      <Link className="back-link" to="/events"><AppIcon name="arrow-left" /><span>Назад до подій</span></Link>
       <section className="card form-card event-create-card">
         <div className="eyebrow">Нова подія</div>
         <h1>Створити подію</h1>

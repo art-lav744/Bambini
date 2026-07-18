@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { eventsWithDistance, formatEventDistance, getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers } from "../../src/mapMath.js";
+import { eventsWithDistance, formatEventDistance, getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers, prioritizeEventOrbitUsers } from "../../src/mapMath.js";
 
 test("two attendees are placed on opposite sides", () => {
   assert.deepEqual(getEventOrbitPatternOffsets(2, 40), [[-40, 0], [40, 0]]);
@@ -25,6 +25,20 @@ test("orbit displays at most eight slots and preserves the hidden count", () => 
   const displayed = limitEventOrbitUsers(users, 8);
   assert.equal(displayed.length, 8);
   assert.deepEqual(displayed.at(-1), { isOverflow: true, overflowCount: 5 });
+});
+
+test("current user and friends are kept ahead of overflow attendees", () => {
+  const users = [
+    { userId: 1, user: { friendship_status: null } },
+    { userId: 2, user: { friendship_status: "accepted" } },
+    { userId: 3, isCurrent: true, user: {} },
+    { userId: 4, user: { friendship_status: "accepted" } },
+    ...Array.from({ length: 7 }, (_, index) => ({ userId: index + 5, user: {} })),
+  ];
+  const displayed = limitEventOrbitUsers(prioritizeEventOrbitUsers(users), 8);
+
+  assert.deepEqual(displayed.slice(0, 3).map((entry) => entry.userId), [3, 2, 4]);
+  assert.equal(displayed.at(-1).isOverflow, true);
 });
 
 test("events are sorted nearest first while missing coordinates stay last", () => {

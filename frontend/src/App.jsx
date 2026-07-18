@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { api } from "./api.js";
+import AppIcon from "./components/AppIcon.jsx";
 import { applyCustomization, DEFAULT_CUSTOMIZATION } from "./customization.js";
 import { ensureCurrentUser, hasStoredSession, subscribeToAuthChanges } from "./userSession.js";
 
@@ -17,6 +18,22 @@ const NotFoundPage = lazy(() => import("./pages/NotFoundPage.jsx"));
 
 function Protected({ authenticated, children }) {
   return authenticated ? children : <Navigate to="/login" replace />;
+}
+
+function OrientationGuard() {
+  useEffect(() => {
+    if (window.matchMedia?.("(display-mode: standalone)").matches) {
+      window.screen?.orientation?.lock?.("portrait").catch(() => {});
+    }
+  }, []);
+
+  return (
+    <aside className="orientation-guard" role="status" aria-live="polite">
+      <AppIcon name="rotate-phone" />
+      <strong>Поверніть телефон вертикально</strong>
+      <span>Bambini працює у портретній орієнтації.</span>
+    </aside>
+  );
 }
 
 export default function App() {
@@ -54,8 +71,10 @@ export default function App() {
   }
 
   return (
-    <Suspense fallback={<main className="loading-screen">Завантаження…</main>}>
-      <Routes>
+    <>
+      <OrientationGuard />
+      <Suspense fallback={<main className="loading-screen">Завантаження…</main>}>
+        <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/map" replace /> : <LoginPage onAuthenticated={handleAuthenticated} />} />
         <Route path="/" element={<Navigate to={isAuthenticated ? "/map" : "/login"} replace />} />
         <Route path="/map" element={<Protected authenticated={isAuthenticated}><MapPage /></Protected>} />
@@ -67,7 +86,8 @@ export default function App() {
         <Route path="/join" element={<Protected authenticated={isAuthenticated}><JoinPage /></Protected>} />
         <Route path="/room/:code" element={<Protected authenticated={isAuthenticated}><RoomPage /></Protected>} />
         <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-    </Suspense>
+        </Routes>
+      </Suspense>
+    </>
   );
 }

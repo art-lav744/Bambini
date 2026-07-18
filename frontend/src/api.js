@@ -86,6 +86,12 @@ async function request(path, options = {}) {
     if (response.status === 401) {
       setAuthToken("");
       localStorage.removeItem("outdoor_user_id");
+      localStorage.removeItem("bambini_email_verification_required");
+      localStorage.removeItem("bambini_pending_email");
+      window.dispatchEvent(new CustomEvent("bambini-auth-changed", { detail: { authenticated: false } }));
+    }
+    if (response.status === 403 && message.includes("Підтвердьте email")) {
+      localStorage.setItem("bambini_email_verification_required", "true");
       window.dispatchEvent(new CustomEvent("bambini-auth-changed", { detail: { authenticated: false } }));
     }
     throw new ApiError(message, response.status);
@@ -100,12 +106,16 @@ export const api = {
   createUser: (payload) => request("/users", { method: "POST", body: JSON.stringify(payload) }),
   login: (payload) => request("/login", { method: "POST", body: JSON.stringify(payload) }),
   googleLogin: (credential) => request("/auth/google", { method: "POST", body: JSON.stringify({ credential }) }),
+  getEmailVerificationStatus: () => request("/email-verification/status"),
+  verifyEmail: (code) => request("/email-verification/verify", { method: "POST", body: JSON.stringify({ code }) }),
+  resendEmailVerification: () => request("/email-verification/resend", { method: "POST" }),
   logout: () => request("/logout", { method: "POST" }),
   getMe: () => request("/users/me"),
   getUser: (userId) => request(`/users/${userId}`),
   updateUser: (userId, payload) => request(`/users/${userId}`, { method: "PATCH", body: JSON.stringify(payload) }),
   getCustomization: (userId) => request(`/users/${userId}/customization`),
   updateCustomization: (userId, payload) => request(`/users/${userId}/customization`, { method: "PUT", body: JSON.stringify(payload) }),
+  getAchievements: (userId) => request(`/users/${userId}/achievements`),
   setLocationSharing: (userId, enabled) => request(`/users/${userId}/location-sharing`, { method: "PUT", body: JSON.stringify({ enabled }) }),
   setLocationVisibility: (userId, visibility) => request(`/users/${userId}/location-visibility`, { method: "PUT", body: JSON.stringify({ visibility }) }),
   updateLocation: (userId, payload) => request(`/users/${userId}/location`, { method: "PUT", body: JSON.stringify(payload) }),

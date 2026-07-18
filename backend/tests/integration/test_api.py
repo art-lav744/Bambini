@@ -2,13 +2,14 @@ import base64
 import hashlib
 from datetime import datetime, timedelta, timezone
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app.database import engine
 from app.main import app
-from app.models import Activity, EventLocation, EventMember, EventOwner, User, UserCustomization, UserLocation, UserNotification
+from app.models import Activity, EmailVerificationChallenge, EventLocation, EventMember, EventOwner, User, UserCosmeticSelection, UserCustomization, UserLocation, UserNotification
 
 
 def auth_header(token):
@@ -77,7 +78,8 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
         assert joined.status_code == 201
         assert client.get(f"/activities/{private_event['code']}", headers=auth_header(bob["token"])).status_code == 200
 
-        # Event-scoped visibility requires both users to be near the same event.
+        # A member can see fresh attendees at the joined event pin even while
+        # viewing it remotely on the map.
         client.put(
             f"/users/{bob['user']['id']}/location",
             json={"latitude": 48.923166, "longitude": 24.7111, "accuracy": 10},
@@ -92,7 +94,7 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
             f"/users/{alice['user']['id']}/visible-locations",
             headers=auth_header(alice["token"]),
         ).json()
-        assert bob["user"]["id"] not in {item["user_id"] for item in remote}
+        assert bob["user"]["id"] in {item["user_id"] for item in remote}
 
         client.put(
             f"/users/{alice['user']['id']}/location",
@@ -108,6 +110,22 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
         assert bob_pin["latitude"] == 48.923166
         assert bob_pin["friend_code"] == bob["user"]["friend_code"]
         assert bob_pin["friendship_status"] is None
+
+        # Attendees of public events are visible at that event pin even to a
+        # viewer who has not joined the event and is not their friend.
+        public_event = create_event(client, alice, title="Public presence", visibility="public")
+        public_join = client.post(
+            f"/activities/{public_event['code']}/join",
+            json={},
+            headers=auth_header(bob["token"]),
+        )
+        assert public_join.status_code == 201, public_join.text
+        public_presence = client.get(
+            f"/users/{carol['user']['id']}/visible-locations",
+            headers=auth_header(carol["token"]),
+        )
+        assert public_presence.status_code == 200, public_presence.text
+        assert bob["user"]["id"] in {item["user_id"] for item in public_presence.json()}
 
         friend_request = client.post(
             f"/users/{alice['user']['id']}/friends/request",
@@ -149,9 +167,14 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
         assert private_event["code"] in visible_codes
         assert capacity_event["code"] in visible_codes
 
+        # Free one of Alice's three organizer slots before creating another event.
+        assert client.delete(
+            f"/activities/{capacity_event['code']}", headers=auth_header(alice["token"])
+        ).status_code == 204
+
         # Embedded media is moved out of JSON/SQLite into controlled storage.
         pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII="
-        image_event = create_event(client, alice, title="Image event", image_url=pixel)
+        image_event = create_event(client, carol, title="Image event", image_url=pixel)
         assert image_event["image_url"].startswith("/media/events/")
 
         # Organizers can edit event details and every other participant receives
@@ -304,6 +327,161 @@ def test_security_privacy_integrity_and_validation(monkeypatch):
 
 
 
+def test_creator_can_have_at_most_three_events_and_deletion_frees_a_slot(monkeypatch):
+    monkeypatch.setattr("app.main.check_rate_limit", lambda *_args, **_kwargs: None)
+    with TestClient(app) as client:
+        creator = register(client, "Limited Creator", "limited-creator@example.com")
+        created = [
+            create_event(client, creator, title=f"Limited event {number}")
+            for number in range(1, 4)
+        ]
+
+        now = datetime.now(timezone.utc) + timedelta(hours=1)
+        rejected = client.post(
+            "/activities",
+            json={
+                "title": "Fourth event",
+                "description": "Must be rejected",
+                "visibility": "public",
+                "latitude": 48.9226,
+                "longitude": 24.7111,
+                "start_time": now.isoformat(),
+                "end_time": (now + timedelta(hours=2)).isoformat(),
+            },
+            headers=auth_header(creator["token"]),
+        )
+        assert rejected.status_code == 409
+        assert "не більше 3 подій" in rejected.json()["detail"]
+
+        assert client.delete(
+            f"/activities/{created[0]['code']}", headers=auth_header(creator["token"])
+        ).status_code == 204
+        replacement = create_event(client, creator, title="Replacement event")
+        assert replacement["title"] == "Replacement event"
+
+        with Session(engine) as session:
+            owned = session.exec(select(EventOwner).where(
+                EventOwner.user_id == creator["user"]["id"]
+            )).all()
+            assert len(owned) == 3
+
+
+def test_email_verification_blocks_app_until_the_code_is_confirmed(monkeypatch):
+    sent_codes = []
+    monkeypatch.setattr("app.main.EMAIL_VERIFICATION_ENABLED", True)
+    monkeypatch.setattr("app.main.check_rate_limit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.main.send_verification_email",
+        lambda recipient, code: sent_codes.append((recipient, code)),
+    )
+
+    with TestClient(app) as client:
+        auth = register(client, "Verify User", "verify-user@example.com")
+        user_id = auth["user"]["id"]
+        headers = auth_header(auth["token"])
+        assert auth["email_verification_required"] is True
+        assert sent_codes[-1][0] == "verify-user@example.com"
+        assert len(sent_codes[-1][1]) == 6
+
+        blocked = client.get(f"/users/{user_id}/customization", headers=headers)
+        assert blocked.status_code == 403
+        assert "Підтвердьте email" in blocked.json()["detail"]
+
+        status_response = client.get("/email-verification/status", headers=headers)
+        assert status_response.status_code == 200
+        assert status_response.json()["required"] is True
+
+        wrong_code = "000000" if sent_codes[-1][1] != "000000" else "111111"
+        wrong = client.post(
+            "/email-verification/verify", json={"code": wrong_code}, headers=headers,
+        )
+        assert wrong.status_code == 422
+
+        with Session(engine) as session:
+            challenge = session.get(EmailVerificationChallenge, user_id)
+            challenge.last_sent_at = datetime.now(timezone.utc) - timedelta(seconds=61)
+            session.add(challenge)
+            session.commit()
+
+        resent = client.post("/email-verification/resend", headers=headers)
+        assert resent.status_code == 200, resent.text
+        assert len(sent_codes) == 2
+
+        verified = client.post(
+            "/email-verification/verify",
+            json={"code": sent_codes[-1][1]},
+            headers=headers,
+        )
+        assert verified.status_code == 200, verified.text
+        assert verified.json()["id"] == user_id
+        assert client.get(f"/users/{user_id}/customization", headers=headers).status_code == 200
+
+        logged_in = client.post(
+            "/login",
+            json={"email": "verify-user@example.com", "password": "securepass1"},
+        )
+        assert logged_in.status_code == 200, logged_in.text
+        assert logged_in.json()["email_verification_required"] is False
+
+
+def test_failed_verification_delivery_does_not_leave_account_or_start_cooldown(monkeypatch):
+    sent_codes = []
+    monkeypatch.setattr("app.main.EMAIL_VERIFICATION_ENABLED", True)
+    monkeypatch.setattr("app.main.check_rate_limit", lambda *_args, **_kwargs: None)
+
+    def fail_delivery(_recipient, _code):
+        raise HTTPException(status_code=503, detail="delivery failed")
+
+    monkeypatch.setattr("app.main.send_verification_email", fail_delivery)
+
+    with TestClient(app) as client:
+        payload = {
+            "name": "Retry User",
+            "email": "retry-user@example.com",
+            "password": "securepass1",
+        }
+        failed_registration = client.post("/users", json=payload)
+        assert failed_registration.status_code == 503
+        with Session(engine) as session:
+            assert session.exec(
+                select(User).where(User.email == payload["email"])
+            ).first() is None
+
+        monkeypatch.setattr(
+            "app.main.send_verification_email",
+            lambda recipient, code: sent_codes.append((recipient, code)),
+        )
+        registered = client.post("/users", json=payload)
+        assert registered.status_code == 201, registered.text
+        auth = registered.json()
+        user_id = auth["user"]["id"]
+        headers = auth_header(auth["token"])
+
+        with Session(engine) as session:
+            challenge = session.get(EmailVerificationChallenge, user_id)
+            challenge.last_sent_at = datetime.now(timezone.utc) - timedelta(seconds=61)
+            session.add(challenge)
+            session.commit()
+            previous_hash = challenge.code_hash
+            previous_sent_at = challenge.last_sent_at
+
+        monkeypatch.setattr("app.main.send_verification_email", fail_delivery)
+        failed_resend = client.post("/email-verification/resend", headers=headers)
+        assert failed_resend.status_code == 503
+        with Session(engine) as session:
+            unchanged = session.get(EmailVerificationChallenge, user_id)
+            assert unchanged.code_hash == previous_hash
+            assert unchanged.last_sent_at == previous_sent_at
+
+        monkeypatch.setattr(
+            "app.main.send_verification_email",
+            lambda recipient, code: sent_codes.append((recipient, code)),
+        )
+        immediate_retry = client.post("/email-verification/resend", headers=headers)
+        assert immediate_retry.status_code == 200, immediate_retry.text
+        assert len(sent_codes) == 2
+
+
 def test_legacy_password_upgrade_logout_and_media_clear():
     password = "oldsecurepass"
     salt = b"0123456789abcdef"
@@ -355,7 +533,7 @@ def test_legacy_password_upgrade_logout_and_media_clear():
         assert client.get("/users/me", headers=auth_header(legacy_token)).status_code == 401
 
 
-def test_stale_viewer_location_cannot_unlock_event_presence():
+def test_stale_viewer_location_does_not_hide_shared_event_presence():
     with TestClient(app) as client:
         viewer = register(client, "Viewer", "viewer-stale@example.com")
         candidate = register(client, "Candidate", "candidate-stale@example.com")
@@ -384,7 +562,7 @@ def test_stale_viewer_location_cannot_unlock_event_presence():
             headers=auth_header(viewer["token"]),
         )
         assert visible.status_code == 200
-        assert candidate["user"]["id"] not in {item["user_id"] for item in visible.json()}
+        assert candidate["user"]["id"] in {item["user_id"] for item in visible.json()}
 
 
 def test_customization_defaults_updates_and_stays_private():
@@ -408,10 +586,14 @@ def test_customization_defaults_updates_and_stays_private():
             "orca_skin": "default",
             "header_style": "default",
             "bottom_style": "default",
+            "background_style": "default",
             "theme": "dark",
         }
 
-        payload = {"orca_skin": "default", "header_style": "space", "bottom_style": "y2k", "theme": "sunset"}
+        payload = {
+            "orca_skin": "default", "header_style": "default", "bottom_style": "otaku",
+            "background_style": "arcade", "theme": "sunset",
+        }
         updated = client.put(
             f"/users/{alice_id}/customization",
             json=payload,
@@ -455,8 +637,9 @@ def test_customization_defaults_updates_and_stays_private():
         assert dolphin.json() == {
             "user_id": alice_id,
             "orca_skin": "dolphin",
-            "header_style": "none",
-            "bottom_style": "none",
+            "header_style": "default",
+            "bottom_style": "default",
+            "background_style": "arcade",
             "theme": "sunset",
         }
 
@@ -472,3 +655,117 @@ def test_customization_defaults_updates_and_stays_private():
             headers=auth_header(alice["token"]),
         )
         assert invalid.status_code == 422
+
+
+def test_achievements_unlock_and_protect_cosmetic_rewards(monkeypatch):
+    monkeypatch.setattr("app.main.check_rate_limit", lambda *_args, **_kwargs: None)
+    with TestClient(app) as client:
+        alice = register(client, "Achievement Alice", "achievement-alice@example.com")
+        bob = register(client, "Achievement Bob", "achievement-bob@example.com")
+        alice_id = alice["user"]["id"]
+        bob_id = bob["user"]["id"]
+        locked_payload = {
+            "orca_skin": "default", "header_style": "default", "bottom_style": "ukrainian",
+            "background_style": "default", "theme": "dark",
+        }
+
+        locked = client.put(
+            f"/users/{alice_id}/customization",
+            json=locked_payload,
+            headers=auth_header(alice["token"]),
+        )
+        assert locked.status_code == 409
+        assert "Перший Союз" in locked.json()["detail"]
+
+        request = client.post(
+            f"/users/{alice_id}/friends/request",
+            json={"friend_code": bob["user"]["friend_code"]},
+            headers=auth_header(alice["token"]),
+        )
+        assert request.status_code == 201, request.text
+        accepted = client.post(
+            f"/users/{bob_id}/friends/{request.json()['friendship_id']}/accept",
+            headers=auth_header(bob["token"]),
+        )
+        assert accepted.status_code == 200, accepted.text
+
+        achievements = client.get(
+            f"/users/{alice_id}/achievements",
+            headers=auth_header(alice["token"]),
+        )
+        assert achievements.status_code == 200, achievements.text
+        first_alliance = next(item for item in achievements.json()["achievements"] if item["id"] == "first-alliance")
+        assert first_alliance["unlocked"] is True
+        assert first_alliance["reward_value"] == "ukrainian"
+
+        equipped = client.put(
+            f"/users/{alice_id}/customization",
+            json=locked_payload,
+            headers=auth_header(alice["token"]),
+        )
+        assert equipped.status_code == 200, equipped.text
+
+        first_event = create_event(client, alice, title="Achievement event one")
+        create_event(client, alice, title="Achievement event two")
+        create_event(client, alice, title="Achievement event three")
+        creator_achievements = client.get(
+            f"/users/{alice_id}/achievements",
+            headers=auth_header(alice["token"]),
+        ).json()
+        architect = next(item for item in creator_achievements["achievements"] if item["id"] == "supreme-architect")
+        assert architect["unlocked"] is True
+
+        background_payload = {**locked_payload, "background_style": "skatepark"}
+        background = client.put(
+            f"/users/{alice_id}/customization",
+            json=background_payload,
+            headers=auth_header(alice["token"]),
+        )
+        assert background.status_code == 200, background.text
+        assert background.json()["background_style"] == "skatepark"
+
+        persisted_background = client.get(
+            f"/users/{alice_id}/customization",
+            headers=auth_header(alice["token"]),
+        )
+        assert persisted_background.status_code == 200, persisted_background.text
+        assert persisted_background.json()["background_style"] == "skatepark"
+        with Session(engine) as session:
+            assert session.get(UserCosmeticSelection, alice_id).background_style == "skatepark"
+
+        location = client.put(
+            f"/users/{alice_id}/location",
+            json={"latitude": 48.9226, "longitude": 24.7111, "accuracy": 5},
+            headers=auth_header(alice["token"]),
+        )
+        assert location.status_code == 200, location.text
+        friend_locations = client.get(
+            f"/users/{bob_id}/friends/locations",
+            headers=auth_header(bob["token"]),
+        )
+        assert friend_locations.status_code == 200, friend_locations.text
+        alice_pin = next(item for item in friend_locations.json() if item["user_id"] == alice_id)
+        assert alice_pin["background_style"] == "skatepark"
+
+        joined = client.post(
+            f"/activities/{first_event['code']}/join",
+            json={"user_id": bob_id},
+            headers=auth_header(bob["token"]),
+        )
+        assert joined.status_code == 201, joined.text
+        bob_achievements = client.get(
+            f"/users/{bob_id}/achievements",
+            headers=auth_header(bob["token"]),
+        ).json()
+        awakening = next(item for item in bob_achievements["achievements"] if item["id"] == "awakening")
+        assert awakening["unlocked"] is True
+
+        glasses = client.put(
+            f"/users/{bob_id}/customization",
+            json={
+                "orca_skin": "default", "header_style": "hawaii", "bottom_style": "default",
+                "background_style": "default", "theme": "dark",
+            },
+            headers=auth_header(bob["token"]),
+        )
+        assert glasses.status_code == 200, glasses.text

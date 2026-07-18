@@ -65,6 +65,8 @@ After `npm run build`, FastAPI serves `frontend/dist`, supports React Router fal
 
 Set `GOOGLE_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` to the same Google OAuth web client ID before enabling Google Sign-In. The backend verifies the Google credential; the browser-decoded payload is never trusted.
 
+Email/password registration is locked behind a six-digit verification code when `EMAIL_VERIFICATION_ENABLED=true`. Configure the `SMTP_*` values shown in `backend/.env.example`; for Gmail, use an app password rather than the account password. Codes expire after 10 minutes, resends are limited to once per minute, and repeated incorrect attempts are blocked.
+
 ## Tests
 
 Unit tests live in `backend/tests/unit` and `frontend/tests/unit`. Backend API integration tests live in `backend/tests/integration`.

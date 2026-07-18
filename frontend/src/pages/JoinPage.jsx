@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import AppIcon from "../components/AppIcon.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 
 export default function JoinPage() {
@@ -34,7 +35,7 @@ export default function JoinPage() {
 
   return (
     <main className="form-page">
-      <Link className="back-link" to="/events">← Назад до подій</Link>
+      <Link className="back-link" to="/events"><AppIcon name="arrow-left" /><span>Назад до подій</span></Link>
       <section className="card form-card">
         <div className="eyebrow">Вхід у подію</div>
         <h1>Приєднатися</h1>

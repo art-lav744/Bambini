@@ -89,3 +89,13 @@ export function limitEventOrbitUsers(users, maxUsers = 8) {
     { isOverflow: true, overflowCount: users.length - visiblePeople.length },
   ];
 }
+
+export function prioritizeEventOrbitUsers(users) {
+  return (Array.isArray(users) ? users : [])
+    .map((user, originalIndex) => ({ user, originalIndex }))
+    .sort((left, right) => {
+      const rank = (entry) => entry.isCurrent ? 0 : entry.user?.friendship_status === "accepted" ? 1 : 2;
+      return rank(left.user) - rank(right.user) || left.originalIndex - right.originalIndex;
+    })
+    .map(({ user }) => user);
+}

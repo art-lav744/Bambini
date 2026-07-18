@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
+import AppIcon from "../components/AppIcon.jsx";
 import BottomNav from "../components/BottomNav.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { ensureCurrentUser } from "../userSession.js";
@@ -95,12 +96,15 @@ export default function FriendsPage() {
 
   function removeFriend(friend, actionLabel = "Видалити") {
     if (!user || deletingId) return;
-    const targetLabel = friend.status === "accepted" ? "друга" : "запит";
+    const isAcceptedFriend = friend.status === "accepted";
+    const targetLabel = isAcceptedFriend ? "друга" : "запит";
     setConfirmation({
       friend,
       actionLabel,
       title: `${actionLabel} ${targetLabel}?`,
-      message: `${actionLabel} ${targetLabel} із ${friend.name}?`,
+      message: isAcceptedFriend
+        ? `Видалити ${friend.name} із друзів?`
+        : `${actionLabel} запит від ${friend.name}?`,
     });
   }
 
@@ -179,7 +183,7 @@ export default function FriendsPage() {
           <h2>Мої друзі</h2>
           {accepted.length === 0 ? (
             <div className="empty-state compact">
-              <div className="empty-state__icon">◎</div>
+              <div className="empty-state__icon"><AppIcon name="friends" /></div>
               <h2>Поки немає друзів</h2>
               <p>Обміняйтеся кодами і прийміть запит.</p>
             </div>

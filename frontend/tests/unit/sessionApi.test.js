@@ -58,3 +58,18 @@ test("session storage publishes login and logout state changes", () => {
   assert.equal(sessionModule.hasStoredSession(), false);
   unsubscribe();
 });
+
+test("pending email verification keeps a token without unlocking the app", () => {
+  sessionModule.savePendingEmailVerification(
+    { id: 8, name: "Pending" },
+    "pending@example.com",
+    "pending-token",
+  );
+
+  assert.equal(sessionModule.hasPendingEmailVerification(), true);
+  assert.equal(sessionModule.hasStoredSession(), false);
+  assert.equal(sessionModule.getPendingVerificationEmail(), "pending@example.com");
+
+  sessionModule.clearCurrentUser();
+  assert.equal(sessionModule.hasPendingEmailVerification(), false);
+});

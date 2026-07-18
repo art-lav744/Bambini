@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import AppIcon from "../components/AppIcon.jsx";
 import BottomNav from "../components/BottomNav.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { ensureCurrentUser } from "../userSession.js";
@@ -172,7 +173,7 @@ export default function EventsPage() {
                 {notification.kind === "event_updated" && notification.event_code && (
                   <Link to={`/room/${notification.event_code}`}>Переглянути</Link>
                 )}
-                <button type="button" aria-label="Закрити повідомлення" onClick={() => dismissNotification(notification.id)}>×</button>
+                <button type="button" aria-label="Закрити повідомлення" onClick={() => dismissNotification(notification.id)}><AppIcon name="close" /></button>
               </article>
             ))}
           </section>
@@ -180,14 +181,14 @@ export default function EventsPage() {
 
         <div className="event-actions">
           <Link className="event-action-card" to="/create">
-            <span className="event-action-card__symbol">+</span>
+            <span className="event-action-card__symbol"><AppIcon name="plus" /></span>
             <div>
               <strong>Створити подію</strong>
               <span>Одна точка на карті</span>
             </div>
           </Link>
           <Link className="event-action-card" to="/join">
-            <span className="event-action-card__symbol">#</span>
+            <span className="event-action-card__symbol"><AppIcon name="hash" /></span>
             <div>
               <strong>Приєднатися за кодом</strong>
               <span>Для публічних і приватних подій</span>
@@ -254,7 +255,7 @@ export default function EventsPage() {
                       {event.image_url ? (
                         <img src={event.image_url} alt="" />
                       ) : (
-                        <span className="event-list-card__pin">●</span>
+                        <span className="event-list-card__pin"><AppIcon name="pin" /></span>
                       )}
                     </div>
                     <Link className="event-list-card__content" to={`/room/${event.code}`}>

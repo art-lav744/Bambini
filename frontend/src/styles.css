@@ -92,6 +92,30 @@ body { min-height: 100dvh; overflow-x: hidden; }
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 a { color: inherit; }
+.app-icon { display: block; width: 1em; height: 1em; flex: 0 0 auto; }
+.app-icon--spin { animation: app-icon-spin .8s linear infinite; }
+@keyframes app-icon-spin { to { transform: rotate(360deg); } }
+
+.orientation-guard { display: none; }
+
+@media (orientation: landscape) and (max-height: 600px) and (pointer: coarse) {
+  .orientation-guard {
+    position: fixed;
+    z-index: 9999;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 12px;
+    padding: 28px;
+    background: var(--color-page-background);
+    color: var(--color-text-body);
+    text-align: center;
+  }
+  .orientation-guard .app-icon { width: 58px; height: 58px; color: var(--color-content-soft); }
+  .orientation-guard strong { font-size: 1.25rem; }
+  .orientation-guard span { color: var(--color-text-muted); font-size: .85rem; }
+}
 
 /* Full-screen map */
 .fullscreen-map-page,
@@ -487,7 +511,7 @@ a { color: inherit; }
 }
 .customization-option:hover { background: var(--color-surface-hover); transform: translateY(-1px); }
 .customization-option:disabled { cursor: wait; opacity: .66; }
-.customization-option.is-locked { cursor: not-allowed; opacity: .5; }
+.customization-option.is-locked { cursor: not-allowed; opacity: .78; }
 .customization-option.is-active { border-color: var(--color-border-emphasis); background: var(--color-surface-hover); }
 .customization-option__preview {
   position: relative;
@@ -503,8 +527,9 @@ a { color: inherit; }
   overflow: hidden;
 }
 .customization-option__preview img { width: 100%; height: 100%; object-fit: contain; }
-.customization-option__empty { color: var(--color-text-muted); font-size: 1.35rem; line-height: 1; }
+.customization-option__empty { width: 25px; height: 25px; color: var(--color-text-muted); }
 .customization-option__check { color: var(--color-success-text); font-size: 1rem; text-align: center; }
+.customization-option__check .app-icon { width: 18px; height: 18px; margin: auto; }
 .customization-lock-note { margin: 10px 0 0; color: var(--color-text-muted); font-size: .8rem; font-weight: 750; }
 .customization-message { margin: 12px 0 0; }
 .theme-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
@@ -541,6 +566,7 @@ a { color: inherit; }
   font-size: 1.05rem;
   font-weight: 900;
 }
+.theme-option__symbol .app-icon { width: 24px; height: 24px; }
 
 @media (max-width: 620px) {
   .profile-hero { gap: 12px; }
@@ -560,13 +586,20 @@ a { color: inherit; }
 /* Forms */
 .form-page { min-height: 100dvh; padding: max(26px, env(safe-area-inset-top, 0px)) 16px 42px; background: var(--color-page-background); }
 .form-card { width: min(100%, 620px); margin: 18px auto 0; }
-.back-link { display: block; width: min(100%, 620px); margin: 0 auto; color: var(--color-link-muted); text-decoration: none; font-size: .9rem; }
+.back-link { display: inline-flex; align-items: center; gap: 7px; width: fit-content; max-width: 620px; margin: 0 auto; color: var(--color-link-muted); text-decoration: none; font-size: .9rem; }
+.back-link .app-icon { width: 18px; height: 18px; }
+.customization-back-link { margin-bottom: 14px; }
 .card { border: 1px solid var(--color-border-default); border-radius: 24px; padding: 22px; background: var(--color-contrast-dark); box-shadow: 0 22px 60px var(--color-shadow-card); }
 .card h1 { margin: 8px 0 0; font-size: clamp(2rem, 8vw, 3rem); letter-spacing: -.04em; }
 .form { display: grid; gap: 18px; margin-top: 26px; }
 .form label { display: grid; gap: 8px; color: var(--color-text-body); font-size: .86rem; font-weight: 750; }
 .form input, .form textarea { width: 100%; border: 1px solid var(--color-control-border); border-radius: 14px; padding: 13px 14px; background: var(--color-page-background); color: var(--color-contrast-light); }
 .form input:focus, .form textarea:focus { outline: 3px solid var(--color-layer-subtle); border-color: var(--color-neutral-depth); }
+.email-verification { display: grid; gap: 18px; }
+.email-verification .form { margin-top: 0; }
+.email-verification__code { text-align: center; font-size: 1.35rem; font-weight: 900; letter-spacing: .42em; font-variant-numeric: tabular-nums; }
+.email-verification__actions { display: grid; gap: 9px; }
+.auth-message { margin: 16px 0 0; }
 .field-hint { color: var(--color-text-muted); font-size: .72rem; font-weight: 600; }
 .event-tag-picker { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--color-border-default); border-radius: 14px; background: var(--color-surface-filter); }
 .event-tag-picker__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--color-text-body); font-size: .82rem; }
@@ -688,7 +721,8 @@ a { color: inherit; }
 .event-room-actions .danger-button { margin-top: 0; }
 .event-tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .event-tag { border: 1px solid var(--color-border-default); border-radius: 999px; padding: 5px 9px; background: var(--color-surface-hover); color: var(--color-text-body); font-size: .72rem; font-weight: 750; }
-.event-directions-button { width: 100%; }
+.event-directions-button { display: flex; gap: 8px; width: 100%; }
+.event-directions-button .app-icon { width: 18px; height: 18px; }
 .event-room-actions--split { grid-template-columns: minmax(0, 1fr) auto; }
 .event-participant-list { gap: 8px; }
 .event-participant-row {
@@ -1326,6 +1360,7 @@ a { color: inherit; }
 
 
 /* Styled MapLibre selection cards */
+.bambini-map-popup { z-index: 20 !important; }
 .bambini-map-popup .maplibregl-popup-content {
   padding: 0;
   overflow: hidden;
@@ -1388,6 +1423,7 @@ a { color: inherit; }
   font-size: .78rem;
   font-weight: 900;
 }
+.map-selection-card__action .app-icon { width: 17px; height: 17px; }
 .map-selection-card--person {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -1744,6 +1780,78 @@ a { color: inherit; }
   visibility: hidden;
   pointer-events: none;
 }
+
+/* Achievement reward backgrounds stay independent from the active UI theme. */
+.customization-mascot.mascot-background--default,
+.map-person-card__mascot.mascot-background--default { background: #fff; }
+.mascot-background--sunflowers {
+  background: #fff url("/visuals/background-sunflowers.webp") center / cover no-repeat !important;
+}
+.mascot-background--sakura {
+  background: #fff url("/visuals/background-sakura.webp") center / cover no-repeat !important;
+}
+.mascot-background--tropical-beach {
+  background: #fff url("/visuals/background-tropical-beach.webp") center / cover no-repeat !important;
+}
+.mascot-background--city {
+  background: #fff url("/visuals/background-city.webp") center / cover no-repeat !important;
+}
+.mascot-background--shop {
+  background: #fff url("/visuals/background-shop.webp") center / cover no-repeat !important;
+}
+.mascot-background--skatepark {
+  background: #fff url("/visuals/background-skatepark.webp") center / cover no-repeat !important;
+}
+.mascot-background--space {
+  background: #fff url("/visuals/background-space.webp") center / cover no-repeat !important;
+}
+.mascot-background--fountain {
+  background: #fff url("/visuals/background-fountain.webp") center / cover no-repeat !important;
+}
+.mascot-background--garden {
+  background: #fff url("/visuals/background-garden.webp") center / cover no-repeat !important;
+}
+.mascot-background--color-splash {
+  background: #fff url("/visuals/background-color-splash.webp") center / cover no-repeat !important;
+}
+.mascot-background--digital-world {
+  background: #fff url("/visuals/background-digital-world.webp") center / cover no-repeat !important;
+}
+.mascot-background--pixel-world {
+  background: #fff url("/visuals/background-pixel-world.webp") center / cover no-repeat !important;
+}
+.mascot-background--concert {
+  background: #fff url("/visuals/background-concert.webp") center / cover no-repeat !important;
+}
+.mascot-background--candy-land {
+  background: #fff url("/visuals/background-candy-land.webp") center / cover no-repeat !important;
+}
+.mascot-background--pirate-bay {
+  background: #fff url("/visuals/background-pirate-bay.webp") center / cover no-repeat !important;
+}
+.mascot-background--ice-castle {
+  background: #fff url("/visuals/background-ice-castle.webp") center / cover no-repeat !important;
+}
+.mascot-background--volcano {
+  background: #fff url("/visuals/background-volcano.webp") center / cover no-repeat !important;
+}
+.mascot-background--medieval-castle {
+  background: #fff url("/visuals/background-medieval-castle.webp") center / cover no-repeat !important;
+}
+.mascot-background--desert {
+  background: #fff url("/visuals/background-desert.webp") center / cover no-repeat !important;
+}
+.mascot-background--arcade {
+  background: #fff url("/visuals/background-arcade.webp") center / cover no-repeat !important;
+}
+
+.customization-option__copy { display: grid; gap: 5px; min-width: 0; padding: 2px 0; }
+.customization-option__copy strong { overflow: hidden; text-overflow: ellipsis; }
+.customization-option__copy small { color: var(--color-text-muted); font-size: .68rem; font-weight: 700; line-height: 1.25; }
+.customization-option.is-locked .customization-option__check { color: var(--color-text-muted); }
+.cosmetic-progress__meta { display: flex; justify-content: space-between; gap: 8px; color: var(--color-text-muted); font-size: .64rem; font-weight: 800; }
+.cosmetic-progress { display: block; height: 5px; overflow: hidden; border-radius: 999px; background: var(--color-control-border); }
+.cosmetic-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--color-success-text); transition: width .2s ease; }
 
 @media (max-width: 480px) {
   .event-map-marker__attendee {

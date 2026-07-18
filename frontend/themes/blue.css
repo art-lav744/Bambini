@@ -1,4 +1,5 @@
-:root[data-theme="blue"] {
+:root[data-theme="blue"],
+.theme-preview[data-theme="blue"] {
   color-scheme: dark;
   --color-map-attribution-surface: rgba(4,12,25,.74);
   --color-link-muted: #91b7dc;

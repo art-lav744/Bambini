@@ -5,6 +5,7 @@ import MapLibreMap from "../components/MapLibreMap.jsx";
 import { filterMapEvents, MAP_EVENT_FILTER_OPTIONS, normalizeMapEventFilter } from "../mapEventFilter.js";
 import { filterMapPeople, MAP_PEOPLE_FILTER_OPTIONS, normalizeMapPeopleFilter } from "../mapPeopleFilter.js";
 import { EVENT_TAG_OPTIONS, filterEventsByTags, normalizeEventTags, toggleEventTag } from "../eventTags.js";
+import { DEFAULT_CUSTOMIZATION, normalizeCustomization } from "../customization.js";
 import { ensureCurrentUser } from "../userSession.js";
 
 const LOCATION_UPLOAD_INTERVAL_MS = 8000;
@@ -69,6 +70,7 @@ function cachedUser() {
     photo_url: null,
     location_visibility: "none",
     location_sharing_enabled: false,
+    ...DEFAULT_CUSTOMIZATION,
     is_cached: true,
   };
 }
@@ -105,10 +107,12 @@ export default function MapPage() {
   const loadServerUser = useCallback(async () => {
     try {
       const profile = await ensureCurrentUser();
-      setUser(profile);
+      const customization = normalizeCustomization(await api.getCustomization(profile.id));
+      const styledProfile = { ...profile, ...customization };
+      setUser(styledProfile);
       setServerOnline(true);
       setServerError("");
-      return profile;
+      return styledProfile;
     } catch (error) {
       setServerOnline(false);
       setServerError(error instanceof ApiError && error.status === 401

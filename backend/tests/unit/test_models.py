@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from app.models import ActivityCreate, normalize_activity_tags
+from app.models import ActivityCreate, UserCustomizationUpdate, normalize_activity_tags
 
 
 def activity_payload(**overrides):
@@ -41,3 +41,33 @@ def test_tag_normalization_rejects_unknown_and_excessive_values():
         normalize_activity_tags(["unknown-preset"])
     with pytest.raises(ValueError):
         normalize_activity_tags(["sport", "football", "basketball", "volleyball", "tennis", "running"])
+
+
+def test_customization_normalizes_known_values_and_rejects_unknown_ones():
+    customization = UserCustomizationUpdate.model_validate({
+        "orca_skin": " DOLPHIN ",
+        "header_style": "Space",
+        "bottom_style": "cyberpunk",
+        "theme": "Green",
+    })
+
+    assert customization.orca_skin == "dolphin"
+    assert customization.header_style == "none"
+    assert customization.bottom_style == "none"
+    assert customization.theme == "green"
+
+    empty_equipment = UserCustomizationUpdate.model_validate({
+        "orca_skin": "default",
+        "header_style": "none",
+        "bottom_style": "none",
+    })
+    assert empty_equipment.header_style == "none"
+    assert empty_equipment.bottom_style == "none"
+
+    assert UserCustomizationUpdate.model_validate({"theme": "light"}).theme == "dark"
+    assert UserCustomizationUpdate.model_validate({"theme": "forest"}).theme == "dark"
+
+    with pytest.raises(ValidationError):
+        UserCustomizationUpdate.model_validate({"bottom_style": "missing"})
+    with pytest.raises(ValidationError):
+        UserCustomizationUpdate.model_validate({"theme": "missing"})

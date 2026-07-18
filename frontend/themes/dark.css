@@ -1,5 +1,6 @@
 :root,
-:root[data-theme="dark"] {
+:root[data-theme="dark"],
+.theme-preview[data-theme="dark"] {
   --color-shadow-soft: rgba(0,0,0,.28);
   --color-map-attribution-surface: rgba(6,8,9,.68);
   --color-link-muted: #9ca3aa;

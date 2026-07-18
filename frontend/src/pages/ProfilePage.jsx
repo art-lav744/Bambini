@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
+import MascotPreview from "../components/MascotPreview.jsx";
+import { DEFAULT_CUSTOMIZATION, normalizeCustomization } from "../customization.js";
 import { ensureCurrentUser, saveCurrentUser, signOut } from "../userSession.js";
 
 function initials(name = "?") {
@@ -28,6 +30,7 @@ export default function ProfilePage() {
   const [profileMessage, setProfileMessage] = useState("");
   const [error, setError] = useState("");
   const [savingVisibility, setSavingVisibility] = useState(false);
+  const [customization, setCustomization] = useState(DEFAULT_CUSTOMIZATION);
   const navigate = useNavigate();
 
   function applyProfile(profile) {
@@ -39,7 +42,20 @@ export default function ProfilePage() {
   }
 
   useEffect(() => {
-    ensureCurrentUser().then(applyProfile).catch((err) => setError(err.message));
+    let active = true;
+    ensureCurrentUser()
+      .then(async (profile) => {
+        if (!active) return;
+        applyProfile(profile);
+        const saved = await api.getCustomization(profile.id);
+        if (active) setCustomization(normalizeCustomization(saved));
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   function selectPhoto(file) {
@@ -117,11 +133,20 @@ export default function ProfilePage() {
     <main className="main-tab-page">
       <div className="tab-page__content">
         <div className="profile-hero">
-          <div className="profile-avatar profile-avatar--photo">
-            {photoUrl ? <img src={photoUrl} alt={name || "Користувач"} referrerPolicy="no-referrer" /> : initials(name || user?.name)}
+          <div className="profile-identity">
+            <div className="profile-avatar profile-avatar--photo">
+              {photoUrl ? <img src={photoUrl} alt={name || "Користувач"} referrerPolicy="no-referrer" /> : initials(name || user?.name)}
+            </div>
+            <div><div className="eyebrow">Профіль</div><h1>{user?.name || "Завантаження..."}</h1></div>
           </div>
-          <div><div className="eyebrow">Профіль</div><h1>{user?.name || "Завантаження..."}</h1></div>
+          <MascotPreview customization={customization} className="profile-mascot" />
         </div>
+
+        <button className="event-action-card profile-style-button" type="button" onClick={() => navigate("/customization")}>
+          <span className="event-action-card__symbol" aria-hidden="true">◐</span>
+          <div><strong>Стиль</strong><span>Змінити персонажа та тему застосунку</span></div>
+          <span className="profile-style-button__arrow" aria-hidden="true">→</span>
+        </button>
 
         {user && (
           <>

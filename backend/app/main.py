@@ -50,6 +50,9 @@ from .models import (
     LocationVisibilityUpdate,
     Participant,
     User,
+    UserCustomization,
+    UserCustomizationRead,
+    UserCustomizationUpdate,
     UserCreate,
     UserLocation,
     UserLogin,
@@ -512,6 +515,13 @@ def health():
 
 # -------------------- Authentication --------------------
 
+def ensure_user_customization(session: Session, user_id: int) -> UserCustomization:
+    customization = session.get(UserCustomization, user_id)
+    if customization is None:
+        customization = UserCustomization(user_id=user_id)
+        session.add(customization)
+    return customization
+
 @app.post("/users", response_model=AuthRead, status_code=status.HTTP_201_CREATED)
 def create_user(data: UserCreate, request: Request, session: Session = Depends(get_session)):
     check_rate_limit(request, "register", 8, 600)
@@ -528,6 +538,8 @@ def create_user(data: UserCreate, request: Request, session: Session = Depends(g
     )
     session.add(user)
     try:
+        session.flush()
+        ensure_user_customization(session, user.id)
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -547,6 +559,9 @@ def login_user(data: UserLogin, request: Request, session: Session = Depends(get
         session.add(user)
         session.commit()
         session.refresh(user)
+    if session.get(UserCustomization, user.id) is None:
+        ensure_user_customization(session, user.id)
+        session.commit()
     return create_auth(session, user)
 
 
@@ -583,9 +598,11 @@ def google_login(data: GoogleLogin, request: Request, session: Session = Depends
             raise HTTPException(status_code=409, detail="Цей email уже пов’язаний з іншим Google акаунтом")
         else:
             user.google_sub = google_sub
-        session.add(user)
-        session.commit()
-        session.refresh(user)
+    session.add(user)
+    session.flush()
+    ensure_user_customization(session, user.id)
+    session.commit()
+    session.refresh(user)
     return create_auth(session, user)
 
 
@@ -633,6 +650,42 @@ def update_user(
     return current_user
 
 
+@app.get("/users/{user_id}/customization", response_model=UserCustomizationRead)
+def get_user_customization(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    require_same_user(user_id, current_user)
+    customization = session.get(UserCustomization, current_user.id)
+    if customization is None:
+        customization = ensure_user_customization(session, current_user.id)
+        session.commit()
+        session.refresh(customization)
+    return customization
+
+
+@app.put("/users/{user_id}/customization", response_model=UserCustomizationRead)
+def update_user_customization(
+    user_id: int,
+    data: UserCustomizationUpdate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    require_same_user(user_id, current_user)
+    customization = session.get(UserCustomization, current_user.id)
+    if customization is None:
+        customization = UserCustomization(user_id=current_user.id)
+    customization.orca_skin = data.orca_skin
+    customization.header_style = data.header_style
+    customization.bottom_style = data.bottom_style
+    customization.theme = data.theme
+    session.add(customization)
+    session.commit()
+    session.refresh(customization)
+    return customization
+
+
 # -------------------- Locations and friends --------------------
 
 @app.put("/users/{user_id}/location", response_model=FriendLocationRead)
@@ -654,10 +707,15 @@ def update_user_location(
     session.add(location)
     session.commit()
     session.refresh(location)
+    customization = session.get(UserCustomization, current_user.id)
     return FriendLocationRead(
         user_id=current_user.id, name=current_user.name, photo_url=current_user.photo_url,
         latitude=location.latitude, longitude=location.longitude, accuracy=location.accuracy,
         updated_at=location.updated_at, age_seconds=0, presence="online",
+        orca_skin=customization.orca_skin if customization else "default",
+        header_style=customization.header_style if customization else "default",
+        bottom_style=customization.bottom_style if customization else "default",
+        theme=customization.theme if customization else "dark",
     )
 
 
@@ -809,6 +867,7 @@ def _location_read(
     location: UserLocation,
     now: datetime,
     friendship_status: str | None = None,
+    customization: UserCustomization | None = None,
 ) -> FriendLocationRead | None:
     age = max(0, int((now - normalized_utc(location.updated_at)).total_seconds()))
     if age > LIVE_LOCATION_MAX_AGE_SECONDS:
@@ -819,6 +878,10 @@ def _location_read(
         friendship_status=friendship_status,
         latitude=location.latitude, longitude=location.longitude, accuracy=location.accuracy,
         updated_at=location.updated_at, age_seconds=age, presence=presence,
+        orca_skin=customization.orca_skin if customization else "default",
+        header_style=customization.header_style if customization else "default",
+        bottom_style=customization.bottom_style if customization else "default",
+        theme=customization.theme if customization else "dark",
     )
 
 
@@ -831,13 +894,14 @@ def list_friend_locations(user_id: int, current_user: User = Depends(get_current
         return []
     users = {item.id: item for item in session.exec(select(User).where(User.id.in_(ids))).all()}
     locations = {item.user_id: item for item in session.exec(select(UserLocation).where(UserLocation.user_id.in_(ids))).all()}
+    customizations = {item.user_id: item for item in session.exec(select(UserCustomization).where(UserCustomization.user_id.in_(ids))).all()}
     now = utc_now()
     result = []
     for friend_id in ids:
         friend, location = users.get(friend_id), locations.get(friend_id)
         if not friend or not location or not friend.location_sharing_enabled or friend.location_visibility not in {"friends", "everyone"}:
             continue
-        item = _location_read(friend, location, now, friendship_status="accepted")
+        item = _location_read(friend, location, now, friendship_status="accepted", customization=customizations.get(friend_id))
         if item:
             result.append(item)
     return result
@@ -900,6 +964,10 @@ def list_visible_locations(user_id: int, current_user: User = Depends(get_curren
         row.user_id: row
         for row in session.exec(select(UserLocation).where(UserLocation.user_id.in_(user_ids))).all()
     } if user_ids else {}
+    customizations = {
+        row.user_id: row
+        for row in session.exec(select(UserCustomization).where(UserCustomization.user_id.in_(user_ids))).all()
+    } if user_ids else {}
 
     result = []
     for candidate in users:
@@ -922,6 +990,7 @@ def list_visible_locations(user_id: int, current_user: User = Depends(get_curren
             now,
             friendship_status=friendships_by_user.get(candidate.id).status
             if candidate.id in friendships_by_user else None,
+            customization=customizations.get(candidate.id),
         )
         if item:
             result.append(item)

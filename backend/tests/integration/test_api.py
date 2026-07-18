@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from app.database import engine
 from app.main import app
-from app.models import Activity, EventLocation, EventMember, EventOwner, User, UserLocation, UserNotification
+from app.models import Activity, EventLocation, EventMember, EventOwner, User, UserCustomization, UserLocation, UserNotification
 
 
 def auth_header(token):
@@ -331,6 +331,7 @@ def test_legacy_password_upgrade_logout_and_media_clear():
         with Session(engine) as session:
             upgraded = session.get(User, legacy_id)
             assert upgraded.password_hash.startswith("pbkdf2_sha256$310000$")
+            assert session.get(UserCustomization, legacy_id) is not None
 
         # Explicitly sending an empty photo clears the existing image.
         pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII="
@@ -384,3 +385,90 @@ def test_stale_viewer_location_cannot_unlock_event_presence():
         )
         assert visible.status_code == 200
         assert candidate["user"]["id"] not in {item["user_id"] for item in visible.json()}
+
+
+def test_customization_defaults_updates_and_stays_private():
+    with TestClient(app) as client:
+        alice = register(client, "Style Alice", "style-alice@example.com")
+        bob = register(client, "Style Bob", "style-bob@example.com")
+        alice_id = alice["user"]["id"]
+        bob_id = bob["user"]["id"]
+
+        with Session(engine) as session:
+            assert session.get(UserCustomization, alice_id) is not None
+            assert session.get(UserCustomization, bob_id) is not None
+
+        default_response = client.get(
+            f"/users/{alice_id}/customization",
+            headers=auth_header(alice["token"]),
+        )
+        assert default_response.status_code == 200
+        assert default_response.json() == {
+            "user_id": alice_id,
+            "orca_skin": "default",
+            "header_style": "default",
+            "bottom_style": "default",
+            "theme": "dark",
+        }
+
+        payload = {"orca_skin": "default", "header_style": "space", "bottom_style": "y2k", "theme": "sunset"}
+        updated = client.put(
+            f"/users/{alice_id}/customization",
+            json=payload,
+            headers=auth_header(alice["token"]),
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json() == {"user_id": alice_id, **payload}
+
+        persisted = client.get(
+            f"/users/{alice_id}/customization",
+            headers=auth_header(alice["token"]),
+        )
+        assert persisted.json() == {"user_id": alice_id, **payload}
+
+        visibility = client.put(
+            f"/users/{alice_id}/location-visibility",
+            json={"visibility": "everyone"},
+            headers=auth_header(alice["token"]),
+        )
+        assert visibility.status_code == 200, visibility.text
+        location = client.put(
+            f"/users/{alice_id}/location",
+            json={"latitude": 48.9226, "longitude": 24.7111, "accuracy": 5},
+            headers=auth_header(alice["token"]),
+        )
+        assert location.status_code == 200, location.text
+        visible = client.get(
+            f"/users/{bob_id}/visible-locations",
+            headers=auth_header(bob["token"]),
+        )
+        assert visible.status_code == 200, visible.text
+        alice_on_map = next(item for item in visible.json() if item["user_id"] == alice_id)
+        assert {key: alice_on_map[key] for key in payload} == payload
+
+        dolphin = client.put(
+            f"/users/{alice_id}/customization",
+            json={**payload, "orca_skin": "dolphin"},
+            headers=auth_header(alice["token"]),
+        )
+        assert dolphin.status_code == 200, dolphin.text
+        assert dolphin.json() == {
+            "user_id": alice_id,
+            "orca_skin": "dolphin",
+            "header_style": "none",
+            "bottom_style": "none",
+            "theme": "sunset",
+        }
+
+        forbidden = client.get(
+            f"/users/{alice_id}/customization",
+            headers=auth_header(bob["token"]),
+        )
+        assert forbidden.status_code == 403
+
+        invalid = client.put(
+            f"/users/{alice_id}/customization",
+            json={**payload, "header_style": "unknown"},
+            headers=auth_header(alice["token"]),
+        )
+        assert invalid.status_code == 422

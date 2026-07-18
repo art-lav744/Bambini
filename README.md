@@ -46,7 +46,7 @@ Browser geolocation requires HTTPS outside `localhost`.
 .\start-android.ps1
 ```
 
-The script starts the app and opens a Cloudflare tunnel after checking that the frontend can reach the backend.
+The script creates a fresh frontend build and serves it with FastAPI on one stable origin before opening the Cloudflare tunnel. Normal local development still uses Vite through `start-dev.ps1`; rerun `start-android.ps1` after source changes to refresh the Android build.
 
 ## Production build
 

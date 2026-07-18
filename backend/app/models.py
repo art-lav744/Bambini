@@ -88,6 +88,22 @@ ACTIVITY_TAG_ALIASES = {
 }
 _ACTIVITY_TAG_LOOKUP = {tag.casefold(): tag for tag in ACTIVITY_TAGS} | ACTIVITY_TAG_ALIASES
 
+ORCA_SKINS = {"default", "dolphin"}
+HEADER_STYLES = {"none", "default", "space", "hawaii", "otaku", "skater"}
+BOTTOM_STYLES = {
+    "none", "default", "cottagecore", "cyberpunk", "glitch", "hawaii", "mexica",
+    "otaku", "skater", "space", "y2k", "gimnazia",
+}
+THEMES = {"dark", "neon", "blue", "green", "red", "sunset"}
+REMOVED_THEMES = {"light", "forest"}
+
+
+def _customization_choice(value: str, allowed: set[str], field_name: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized not in allowed:
+        raise ValueError(f"unsupported {field_name}")
+    return normalized
+
 
 def normalize_activity_tags(value, *, reject_unknown: bool = True) -> list[str]:
     if value is None:
@@ -311,6 +327,56 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class UserCustomizationBase(SQLModel):
+    orca_skin: str = Field(default="default", max_length=50)
+    header_style: str = Field(default="default", max_length=50)
+    bottom_style: str = Field(default="default", max_length=50)
+    theme: str = Field(default="dark", max_length=20)
+
+    @field_validator("orca_skin", mode="before")
+    @classmethod
+    def validate_orca_skin(cls, value):
+        return _customization_choice(value, ORCA_SKINS, "orca_skin")
+
+    @field_validator("header_style", mode="before")
+    @classmethod
+    def validate_header_style(cls, value):
+        return _customization_choice(value, HEADER_STYLES, "header_style")
+
+    @field_validator("bottom_style", mode="before")
+    @classmethod
+    def validate_bottom_style(cls, value):
+        return _customization_choice(value, BOTTOM_STYLES, "bottom_style")
+
+    @field_validator("theme", mode="before")
+    @classmethod
+    def validate_theme(cls, value):
+        if str(value or "").strip().lower() in REMOVED_THEMES:
+            return "dark"
+        return _customization_choice(value, THEMES, "theme")
+
+    @model_validator(mode="after")
+    def prevent_dolphin_equipment(self):
+        if self.orca_skin == "dolphin":
+            self.header_style = "none"
+            self.bottom_style = "none"
+        return self
+
+
+class UserCustomization(UserCustomizationBase, table=True):
+    __tablename__ = "user_customizations"
+
+    user_id: int = Field(primary_key=True, foreign_key="user.id", ondelete="CASCADE")
+
+
+class UserCustomizationRead(UserCustomizationBase):
+    user_id: int
+
+
+class UserCustomizationUpdate(UserCustomizationBase):
+    pass
+
+
 class UserCreate(SQLModel):
     name: str = Field(min_length=2, max_length=60)
     email: str = Field(min_length=5, max_length=320)
@@ -451,6 +517,10 @@ class FriendLocationRead(SQLModel):
     presence: str
     friend_code: str | None = None
     friendship_status: str | None = None
+    orca_skin: str = "default"
+    header_style: str = "default"
+    bottom_style: str = "default"
+    theme: str = "dark"
 
 
 class UserNotification(SQLModel, table=True):

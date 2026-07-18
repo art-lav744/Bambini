@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
+import { resolveMascot } from "../customization.js";
 import { getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers } from "../mapMath.js";
 
 const DEFAULT_CENTER = [24.7111, 48.9226];
@@ -195,6 +196,15 @@ function escapeHtml(value = "") {
 
 function initials(name = "?") {
   return name.trim().slice(0, 2).toUpperCase() || "?";
+}
+
+function mascotPreviewHtml(customization) {
+  const { skin, header, bottom, layers } = resolveMascot(customization);
+  const label = `Сконструйований образ: ${skin.name}, ${header.name}, ${bottom.name}`;
+  const images = layers.map((layer) =>
+    `<img class="map-person-card__mascot-layer" src="${escapeHtml(layer.asset)}" alt="">`
+  ).join("");
+  return `<div class="map-person-card__mascot" role="img" aria-label="${escapeHtml(label)}">${images}</div>`;
 }
 
 function formatEventDateTime(value) {
@@ -527,6 +537,9 @@ function userSignature(user, isCurrent) {
     user.updated_at || "",
     user.friend_code || "",
     user.friendship_status || "",
+    user.orca_skin || "",
+    user.header_style || "",
+    user.bottom_style || "",
     isCurrent,
   ].join("|");
 }
@@ -771,9 +784,7 @@ export default function MapLibreMap({
           : item.user.presence === "online"
             ? "На карті зараз"
             : `Оновлено ${item.user.age_seconds || 0} с тому`;
-        const avatarHtml = item.user.photo_url
-          ? `<img src="${escapeHtml(item.user.photo_url)}" alt="">`
-          : `<span>${escapeHtml(initials(item.user.name))}</span>`;
+        const mascotHtml = mascotPreviewHtml(item.user);
         const friendActionHtml = item.isCurrent
           ? ""
           : item.user.friendship_status === "accepted"
@@ -789,7 +800,7 @@ export default function MapLibreMap({
           className: "bambini-map-popup",
         }).setHTML(
           `<article class="map-selection-card map-selection-card--person">
-            <div class="map-person-card__avatar">${avatarHtml}</div>
+            ${mascotHtml}
             <div class="map-person-card__content">
               <div class="map-person-card__status"><span class="is-${escapeHtml(item.user.presence || "online")}"></span>${escapeHtml(statusText)}</div>
               <h3>${escapeHtml(displayName)}</h3>

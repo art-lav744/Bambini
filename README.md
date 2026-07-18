@@ -1,4 +1,4 @@
-# Bambini / Outdoor Together
+# Bambini
 
 Android-first React + MapLibre frontend with a FastAPI/SQLite backend.
 
@@ -46,7 +46,7 @@ Browser geolocation requires HTTPS outside `localhost`.
 .\start-android.ps1
 ```
 
-The script starts the app and opens a Cloudflare tunnel after checking that the frontend can reach the backend.
+The script creates a fresh frontend build and serves it with FastAPI on one stable origin before opening the Cloudflare tunnel. Normal local development still uses Vite through `start-dev.ps1`; rerun `start-android.ps1` after source changes to refresh the Android build.
 
 ## Production build
 
@@ -65,22 +65,50 @@ After `npm run build`, FastAPI serves `frontend/dist`, supports React Router fal
 
 Set `GOOGLE_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` to the same Google OAuth web client ID before enabling Google Sign-In. The backend verifies the Google credential; the browser-decoded payload is never trusted.
 
+Email/password registration is locked behind a six-digit verification code when `EMAIL_VERIFICATION_ENABLED=true`. Configure the `SMTP_*` values shown in `backend/.env.example`; for Gmail, use an app password rather than the account password. Codes expire after 10 minutes, resends are limited to once per minute, and repeated incorrect attempts are blocked.
+
 ## Tests
 
-Backend:
+Unit tests live in `backend/tests/unit` and `frontend/tests/unit`. Backend API integration tests live in `backend/tests/integration`.
+
+Backend — install the test dependencies once:
 
 ```powershell
 cd backend
-python -m pip install -r requirements-dev.txt
-python -m pytest -q
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ```
 
-Frontend:
+Run only backend unit tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\unit -q
+```
+
+Run only backend API integration tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\integration -q
+```
+
+Run every backend test:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Frontend — install dependencies once, then run unit tests:
 
 ```powershell
 cd frontend
-npm ci
-npm run check
+npm.cmd ci
+npm.cmd run test:unit
+```
+
+Run frontend unit tests and verify the production build together:
+
+```powershell
+npm.cmd run check
 ```
 
 The backend suite uses a temporary database and temporary media directory. It does not modify `backend/app.db` or `backend/media`.

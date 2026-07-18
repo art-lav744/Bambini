@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import AppIcon from "../components/AppIcon.jsx";
 import EventLocationPicker from "../components/EventLocationPicker.jsx";
+import EventTagPicker from "../components/EventTagPicker.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 import { defaultEventEndTime, defaultEventStartTime, localDateTimeToUtc } from "../eventFormat.js";
 import EventPinPreview, { EVENT_PINS } from "../components/EventPinPreview.jsx";
@@ -12,6 +14,7 @@ export default function CreatePage() {
   const [form, setForm] = useState({
     title: "",
     description: "",
+    tags: [],
     visibility: "public",
     image_url: "",
     capacity: null,
@@ -87,7 +90,7 @@ export default function CreatePage() {
 
   return (
     <main className="form-page event-form-page">
-      <Link className="back-link" to="/events">← Назад до подій</Link>
+      <Link className="back-link" to="/events"><AppIcon name="arrow-left" /><span>Назад до подій</span></Link>
       <section className="card form-card event-create-card">
         <div className="eyebrow">Нова подія</div>
         <h1>Створити подію</h1>
@@ -116,6 +119,11 @@ export default function CreatePage() {
               rows="3"
             />
           </label>
+
+          <EventTagPicker
+            value={form.tags}
+            onChange={(tags) => setForm((current) => ({ ...current, tags }))}
+          />
 
           <label>
             Час початку

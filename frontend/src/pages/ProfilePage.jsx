@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import AppIcon from "../components/AppIcon.jsx";
 import BottomNav from "../components/BottomNav.jsx";
+import MascotPreview from "../components/MascotPreview.jsx";
+import { DEFAULT_CUSTOMIZATION, normalizeCustomization } from "../customization.js";
 import { ensureCurrentUser, saveCurrentUser, signOut } from "../userSession.js";
 
 function initials(name = "?") {
@@ -25,8 +28,10 @@ export default function ProfilePage() {
   const [photoUrl, setPhotoUrl] = useState("");
   const [photoPayload, setPhotoPayload] = useState(undefined);
   const [message, setMessage] = useState("");
+  const [profileMessage, setProfileMessage] = useState("");
   const [error, setError] = useState("");
   const [savingVisibility, setSavingVisibility] = useState(false);
+  const [customization, setCustomization] = useState(DEFAULT_CUSTOMIZATION);
   const navigate = useNavigate();
 
   function applyProfile(profile) {
@@ -38,7 +43,20 @@ export default function ProfilePage() {
   }
 
   useEffect(() => {
-    ensureCurrentUser().then(applyProfile).catch((err) => setError(err.message));
+    let active = true;
+    ensureCurrentUser()
+      .then(async (profile) => {
+        if (!active) return;
+        applyProfile(profile);
+        const saved = await api.getCustomization(profile.id);
+        if (active) setCustomization(normalizeCustomization(saved));
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   function selectPhoto(file) {
@@ -67,11 +85,12 @@ export default function ProfilePage() {
     if (!user) return;
     setError("");
     setMessage("");
+    setProfileMessage("");
     try {
       const payload = { name: name.trim() };
       if (photoPayload !== undefined) payload.photo_url = photoPayload;
       applyProfile(await api.updateUser(user.id, payload));
-      setMessage("Профіль збережено");
+      setProfileMessage("Профіль збережено");
     } catch (err) {
       setError(err.message);
     }
@@ -81,6 +100,7 @@ export default function ProfilePage() {
     if (!user || savingVisibility || visibility === currentVisibility(user)) return;
     setError("");
     setMessage("");
+    setProfileMessage("");
     setSavingVisibility(true);
     try {
       const updated = await api.setLocationVisibility(user.id, visibility);
@@ -94,6 +114,7 @@ export default function ProfilePage() {
   }
 
   async function copyValue(value, fallbackMessage) {
+    setProfileMessage("");
     try {
       await navigator.clipboard.writeText(value);
       setMessage("Код скопійовано");
@@ -113,11 +134,20 @@ export default function ProfilePage() {
     <main className="main-tab-page">
       <div className="tab-page__content">
         <div className="profile-hero">
-          <div className="profile-avatar profile-avatar--photo">
-            {photoUrl ? <img src={photoUrl} alt={name || "Користувач"} referrerPolicy="no-referrer" /> : initials(name || user?.name)}
+          <div className="profile-identity">
+            <div className="profile-avatar profile-avatar--photo">
+              {photoUrl ? <img src={photoUrl} alt={name || "Користувач"} referrerPolicy="no-referrer" /> : initials(name || user?.name)}
+            </div>
+            <div><div className="eyebrow">Профіль</div><h1>{user?.name || "Завантаження..."}</h1></div>
           </div>
-          <div><div className="eyebrow">Профіль</div><h1>{user?.name || "Завантаження..."}</h1></div>
+          <MascotPreview customization={customization} className="profile-mascot" />
         </div>
+
+        <button className="event-action-card profile-style-button" type="button" onClick={() => navigate("/customization")}>
+          <span className="event-action-card__symbol" aria-hidden="true"><AppIcon name="palette" /></span>
+          <div><strong>Стиль</strong><span>Змінити персонажа та тему застосунку</span></div>
+          <span className="profile-style-button__arrow" aria-hidden="true"><AppIcon name="arrow-right" /></span>
+        </button>
 
         {user && (
           <>
@@ -143,6 +173,7 @@ export default function ProfilePage() {
               <label>Фото профілю<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" onChange={(event) => selectPhoto(event.target.files?.[0])} /></label>
               {photoUrl && <button className="button secondary" type="button" onClick={() => { setPhotoUrl(""); setPhotoPayload(""); }}>Видалити фото</button>}
               <button className="button primary" type="submit">Зберегти профіль</button>
+              {profileMessage && <p className="success-message profile-form__message">{profileMessage}</p>}
             </form>
 
             <div style={{ marginTop: 64, marginBottom: 18 }}>

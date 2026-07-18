@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
-import { getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers } from "../mapMath.js";
+import AppIcon from "./AppIcon.jsx";
+import { resolveMascot } from "../customization.js";
+import { iconSvgMarkup } from "../icons.js";
+import { getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers, prioritizeEventOrbitUsers } from "../mapMath.js";
 
 const DEFAULT_CENTER = [24.7111, 48.9226];
 const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
@@ -84,20 +87,35 @@ function safeSetLayout(map, layerId, property, value) {
   }
 }
 
-function applyBleakStyle(map) {
+function mapThemeColors() {
+  const styles = getComputedStyle(document.documentElement);
+  const read = (name) => styles.getPropertyValue(name).trim();
+
+  return {
+    water: read("--color-map-water"),
+    roadMajor: read("--color-map-road-major"),
+    road: read("--color-text-muted-map"),
+    boundary: read("--color-map-boundary"),
+    label: read("--color-text-soft-map"),
+    labelHalo: read("--color-map-label-halo"),
+  };
+}
+
+function applyMapThemeStyle(map) {
   const layers = map.getStyle()?.layers || [];
+  const colors = mapThemeColors();
 
   for (const layer of layers) {
     const id = layer.id.toLowerCase();
     const sourceLayer = String(layer["source-layer"] || "").toLowerCase();
     const key = `${id} ${sourceLayer}`;
 
-    // Keep the base OpenFreeMap dark style intact. Repainting every fill layer
+    // Keep the base OpenFreeMap style intact. Repainting every fill layer
     // after the style loads caused the whole map to visibly turn almost black
     // about a second after entering /map.
     if (layer.type === "fill") {
       if (key.includes("water")) {
-        safeSetPaint(map, layer.id, "fill-color", "#101820");
+        safeSetPaint(map, layer.id, "fill-color", colors.water);
         safeSetPaint(map, layer.id, "fill-opacity", 0.96);
       } else if (
         key.includes("park") ||
@@ -124,10 +142,10 @@ function applyBleakStyle(map) {
           key.includes("motorway") ||
           key.includes("trunk") ||
           key.includes("primary");
-        safeSetPaint(map, layer.id, "line-color", major ? "#e3e7ea" : "#9ca4ab");
+        safeSetPaint(map, layer.id, "line-color", major ? colors.roadMajor : colors.road);
         safeSetPaint(map, layer.id, "line-opacity", major ? 0.94 : 0.8);
       } else if (key.includes("boundary")) {
-        safeSetPaint(map, layer.id, "line-color", "#555d65");
+        safeSetPaint(map, layer.id, "line-color", colors.boundary);
       }
       continue;
     }
@@ -162,8 +180,8 @@ function applyBleakStyle(map) {
         continue;
       }
 
-      safeSetPaint(map, layer.id, "text-color", "#b8c0c7");
-      safeSetPaint(map, layer.id, "text-halo-color", "#0a0d10");
+      safeSetPaint(map, layer.id, "text-color", colors.label);
+      safeSetPaint(map, layer.id, "text-halo-color", colors.labelHalo);
       safeSetPaint(map, layer.id, "text-halo-width", 1.1);
     }
   }
@@ -180,6 +198,20 @@ function escapeHtml(value = "") {
 
 function initials(name = "?") {
   return name.trim().slice(0, 2).toUpperCase() || "?";
+}
+
+function mascotPreviewHtml(customization) {
+  const { skin, header, bottom, background, layers } = resolveMascot(customization);
+  const label = `Сконструйований образ: ${skin.name}, ${header.name}, ${bottom.name}, фон ${background.name}`;
+  const images = layers.map((layer) =>
+    `<img class="map-person-card__mascot-layer" src="${escapeHtml(layer.asset)}" alt="">`
+  ).join("");
+  return `<div class="map-person-card__mascot mascot-background--${escapeHtml(background.id)}" role="img" aria-label="${escapeHtml(label)}">${images}</div>`;
+}
+
+function decoratePopupCloseButton(popup) {
+  const closeButton = popup.getElement()?.querySelector(".maplibregl-popup-close-button");
+  if (closeButton) closeButton.innerHTML = iconSvgMarkup("close");
 }
 
 function formatEventDateTime(value) {
@@ -344,12 +376,12 @@ function layoutEventUserGroups(eventEntries, userEntries, zoom) {
       (eventEntry.event?.participant_user_ids || []).map(Number).filter(Number.isFinite)
     );
 
-    const usersAtEvent = userEntries
-      .filter((entry) => {
+    const usersAtEvent = prioritizeEventOrbitUsers(
+      userEntries.filter((entry) => {
         if (!Number.isFinite(entry.userId) || !participantIds.has(entry.userId) || !entry.realLngLat) return false;
         return isWithinEventGeofence(eventCoords, entry.realLngLat, entry.user?.accuracy);
       })
-      .sort((a, b) => (a.isCurrent === b.isCurrent ? 0 : a.isCurrent ? -1 : 1));
+    );
 
     const visibleBadges = limitEventOrbitUsers(usersAtEvent, MAX_EVENT_ORBIT_USERS);
     syncEventOrbit(
@@ -416,8 +448,8 @@ function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
         </div>
         <h3>${escapeHtml(event.title)}</h3>
         <p>${escapeHtml(event.description || "Без опису")}</p>
-        <button class="map-selection-card__action" type="button" data-open-event="${escapeHtml(event.code)}">Відкрити подію <span>→</span></button>
-        ${canJoinNearby ? `<button class="map-selection-card__action" type="button" data-join-event="${escapeHtml(event.code)}">Приєднатися поруч <span>+</span></button>` : ""}
+        <button class="map-selection-card__action" type="button" data-open-event="${escapeHtml(event.code)}">Відкрити подію ${iconSvgMarkup("arrow-right")}</button>
+        ${canJoinNearby ? `<button class="map-selection-card__action" type="button" data-join-event="${escapeHtml(event.code)}">Приєднатися поруч ${iconSvgMarkup("plus")}</button>` : ""}
       </div>
     </article>`
   );
@@ -426,6 +458,7 @@ function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
   if (!lngLat) return null;
 
   const handlePopupOpen = () => {
+    decoratePopupCloseButton(popup);
     const action = popup.getElement()?.querySelector("[data-open-event]");
     if (action) {
       action.onclick = () => onOpenEvent?.(event.code);
@@ -457,27 +490,6 @@ function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
     isCurrent: false,
     cleanupPopup: () => popup.off("open", handlePopupOpen),
   };
-}
-
-function createCheckpointMarker(checkpoint) {
-  const element = document.createElement("button");
-  element.className = "checkpoint-marker";
-  element.type = "button";
-  element.setAttribute("aria-label", checkpoint.title);
-  element.innerHTML = `<span>${checkpoint.order_index || "•"}</span>`;
-
-  const popup = new maplibregl.Popup({ offset: 18 }).setHTML(
-    `<div class="map-popup"><strong>${escapeHtml(checkpoint.title)}</strong>${
-      checkpoint.description ? `<p>${escapeHtml(checkpoint.description)}</p>` : ""
-    }</div>`
-  );
-
-  const lngLat = normalizeLngLat(checkpoint);
-  if (!lngLat) return null;
-
-  return new maplibregl.Marker({ element, anchor: "center" })
-    .setLngLat(lngLat)
-    .setPopup(popup);
 }
 
 function createUserMarkerElement(user, isCurrent) {
@@ -533,15 +545,16 @@ function userSignature(user, isCurrent) {
     user.updated_at || "",
     user.friend_code || "",
     user.friendship_status || "",
+    user.orca_skin || "",
+    user.header_style || "",
+    user.bottom_style || "",
+    user.background_style || "",
     isCurrent,
   ].join("|");
 }
 
 export default function MapLibreMap({
-  checkpoints = [],
   eventPins = [],
-  canEdit = false,
-  onCreateCheckpoint,
   enableLocation = true,
   currentUser = null,
   currentLocation = null,
@@ -549,18 +562,18 @@ export default function MapLibreMap({
   onLocationFound,
   onJoinEvent,
   onAddFriend,
+  autoCenterOnUser = false,
   className = "",
 }) {
   const navigate = useNavigate();
   const openEvent = useCallback((code) => navigate(`/room/${code}`), [navigate]);
   const containerRef = useRef(null);
   const mapRef = useRef(null);
-  const checkpointMarkersRef = useRef([]);
   const eventMarkersRef = useRef([]);
   const eventMarkersByKeyRef = useRef(new Map());
-  const selectionMarkerRef = useRef(null);
   const userMarkersRef = useRef(new Map());
   const layoutFrameRef = useRef(null);
+  const hasAutoCenteredOnUserRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [locationError, setLocationError] = useState("");
 
@@ -628,10 +641,19 @@ export default function MapLibreMap({
       "top-right"
     );
 
+    const applyCurrentTheme = () => applyMapThemeStyle(map);
     map.on("load", () => {
-      applyBleakStyle(map);
+      applyCurrentTheme();
       map.resize();
       setMapReady(true);
+    });
+
+    const themeObserver = new MutationObserver(() => {
+      if (map.isStyleLoaded()) applyCurrentTheme();
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
     });
 
     const persistView = () => saveMapView(map);
@@ -643,7 +665,6 @@ export default function MapLibreMap({
 
     mapRef.current = map;
     return () => {
-      checkpointMarkersRef.current.forEach((marker) => marker.remove());
       eventMarkersRef.current.forEach((entry) => {
         entry.destroy?.();
         entry.marker.remove();
@@ -654,9 +675,9 @@ export default function MapLibreMap({
         entry.marker.remove();
       });
       userMarkersRef.current.clear();
-      selectionMarkerRef.current?.remove();
       saveMapView(map);
       resizeObserver.disconnect();
+      themeObserver.disconnect();
       map.off("moveend", persistView);
       map.off("zoom", scheduleMarkerLayout);
       if (layoutFrameRef.current !== null) {
@@ -670,14 +691,15 @@ export default function MapLibreMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady) return;
-
-    checkpointMarkersRef.current.forEach((marker) => marker.remove());
-    checkpointMarkersRef.current = checkpoints
-      .map((checkpoint) => createCheckpointMarker(checkpoint))
-      .filter(Boolean);
-    checkpointMarkersRef.current.forEach((marker) => marker.addTo(map));
-  }, [checkpoints, mapReady]);
+    const currentLngLat = normalizeLngLat(currentLocation);
+    if (!autoCenterOnUser || !map || !mapReady || !currentLngLat || hasAutoCenteredOnUserRef.current) return;
+    hasAutoCenteredOnUserRef.current = true;
+    map.flyTo({
+      center: currentLngLat,
+      zoom: Math.min(MAX_ZOOM, Math.max(map.getZoom(), 15)),
+      duration: 900,
+    });
+  }, [autoCenterOnUser, currentLocation, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -785,9 +807,7 @@ export default function MapLibreMap({
           : item.user.presence === "online"
             ? "На карті зараз"
             : `Оновлено ${item.user.age_seconds || 0} с тому`;
-        const avatarHtml = item.user.photo_url
-          ? `<img src="${escapeHtml(item.user.photo_url)}" alt="">`
-          : `<span>${escapeHtml(initials(item.user.name))}</span>`;
+        const mascotHtml = mascotPreviewHtml(item.user);
         const friendActionHtml = item.isCurrent
           ? ""
           : item.user.friendship_status === "accepted"
@@ -795,7 +815,7 @@ export default function MapLibreMap({
             : item.user.friendship_status === "pending"
               ? `<button class="map-selection-card__action" type="button" disabled>Запит уже надіслано</button>`
               : onAddFriend && item.user.friend_code
-                ? `<button class="map-selection-card__action" type="button" data-add-friend>Додати в друзі <span>+</span></button>`
+                ? `<button class="map-selection-card__action" type="button" data-add-friend>Додати в друзі ${iconSvgMarkup("plus")}</button>`
                 : "";
         const popup = new maplibregl.Popup({
           offset: 34,
@@ -803,7 +823,7 @@ export default function MapLibreMap({
           className: "bambini-map-popup",
         }).setHTML(
           `<article class="map-selection-card map-selection-card--person">
-            <div class="map-person-card__avatar">${avatarHtml}</div>
+            ${mascotHtml}
             <div class="map-person-card__content">
               <div class="map-person-card__status"><span class="is-${escapeHtml(item.user.presence || "online")}"></span>${escapeHtml(statusText)}</div>
               <h3>${escapeHtml(displayName)}</h3>
@@ -813,6 +833,7 @@ export default function MapLibreMap({
           </article>`
         );
         const handlePopupOpen = () => {
+          decoratePopupCloseButton(popup);
           const action = popup.getElement()?.querySelector("[data-add-friend]");
           if (!action) return;
           action.onclick = async () => {
@@ -864,51 +885,6 @@ export default function MapLibreMap({
 
     scheduleMarkerLayout();
   }, [currentLocation, currentUser, friendLocations, mapReady, onAddFriend, scheduleMarkerLayout]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || !canEdit || !onCreateCheckpoint) return undefined;
-
-    function handleMapClick(event) {
-      selectionMarkerRef.current?.remove();
-      const element = document.createElement("button");
-      element.className = "checkpoint-marker checkpoint-marker--new";
-      element.type = "button";
-      element.innerHTML = "<span>+</span>";
-
-      const marker = new maplibregl.Marker({ element, anchor: "center" })
-        .setLngLat(event.lngLat)
-        .addTo(map);
-      selectionMarkerRef.current = marker;
-
-      const title = window.prompt("Назва контрольної точки:");
-      if (!title?.trim()) {
-        marker.remove();
-        selectionMarkerRef.current = null;
-        return;
-      }
-
-      Promise.resolve(
-        onCreateCheckpoint({
-          title: title.trim(),
-          description: "",
-          latitude: event.lngLat.lat,
-          longitude: event.lngLat.lng,
-          order_index: checkpoints.length + 1,
-        })
-      ).finally(() => {
-        marker.remove();
-        selectionMarkerRef.current = null;
-      });
-    }
-
-    map.on("click", handleMapClick);
-    map.getCanvas().style.cursor = "crosshair";
-    return () => {
-      map.off("click", handleMapClick);
-      map.getCanvas().style.cursor = "";
-    };
-  }, [canEdit, checkpoints.length, mapReady, onCreateCheckpoint]);
 
   function locateUser() {
     setLocationError("");
@@ -963,11 +939,7 @@ export default function MapLibreMap({
           aria-label="Показати мою геолокацію"
           title="Моя геолокація"
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-            <circle cx="12" cy="12" r="7" />
-          </svg>
+          <AppIcon name="locate" />
         </button>
       )}
 

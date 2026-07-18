@@ -1,4 +1,4 @@
-const CONFIGURED_API_URL = (import.meta.env.VITE_API_URL || "").trim();
+const CONFIGURED_API_URL = (import.meta.env?.VITE_API_URL || "").trim();
 const AUTH_TOKEN_KEY = "outdoor_auth_token";
 
 function resolveApiUrl() {
@@ -86,6 +86,12 @@ async function request(path, options = {}) {
     if (response.status === 401) {
       setAuthToken("");
       localStorage.removeItem("outdoor_user_id");
+      localStorage.removeItem("bambini_email_verification_required");
+      localStorage.removeItem("bambini_pending_email");
+      window.dispatchEvent(new CustomEvent("bambini-auth-changed", { detail: { authenticated: false } }));
+    }
+    if (response.status === 403 && message.includes("Підтвердьте email")) {
+      localStorage.setItem("bambini_email_verification_required", "true");
       window.dispatchEvent(new CustomEvent("bambini-auth-changed", { detail: { authenticated: false } }));
     }
     throw new ApiError(message, response.status);
@@ -100,10 +106,16 @@ export const api = {
   createUser: (payload) => request("/users", { method: "POST", body: JSON.stringify(payload) }),
   login: (payload) => request("/login", { method: "POST", body: JSON.stringify(payload) }),
   googleLogin: (credential) => request("/auth/google", { method: "POST", body: JSON.stringify({ credential }) }),
+  getEmailVerificationStatus: () => request("/email-verification/status"),
+  verifyEmail: (code) => request("/email-verification/verify", { method: "POST", body: JSON.stringify({ code }) }),
+  resendEmailVerification: () => request("/email-verification/resend", { method: "POST" }),
   logout: () => request("/logout", { method: "POST" }),
   getMe: () => request("/users/me"),
   getUser: (userId) => request(`/users/${userId}`),
   updateUser: (userId, payload) => request(`/users/${userId}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  getCustomization: (userId) => request(`/users/${userId}/customization`),
+  updateCustomization: (userId, payload) => request(`/users/${userId}/customization`, { method: "PUT", body: JSON.stringify(payload) }),
+  getAchievements: (userId) => request(`/users/${userId}/achievements`),
   setLocationSharing: (userId, enabled) => request(`/users/${userId}/location-sharing`, { method: "PUT", body: JSON.stringify({ enabled }) }),
   setLocationVisibility: (userId, visibility) => request(`/users/${userId}/location-visibility`, { method: "PUT", body: JSON.stringify({ visibility }) }),
   updateLocation: (userId, payload) => request(`/users/${userId}/location`, { method: "PUT", body: JSON.stringify(payload) }),
@@ -118,12 +130,13 @@ export const api = {
   getVisibleActivities: () => request("/activities/visible/list"),
   getFriendActivities: (userId) => request(`/users/${userId}/friend-activities`),
   getActivity: (code) => request(`/activities/${code}`),
+  updateActivity: (code, payload) => request(`/activities/${code}`, { method: "PATCH", body: JSON.stringify(payload) }),
   joinActivity: (code, userId) => request(`/activities/${code}/join`, { method: "POST", body: JSON.stringify({ user_id: userId }) }),
   leaveActivity: (code, userId) => request(`/activities/${code}/members/${userId}`, { method: "DELETE" }),
   removeActivityMember: (code, userId) => request(`/activities/${code}/members/${userId}`, { method: "DELETE" }),
   deleteActivity: (code) => request(`/activities/${code}`, { method: "DELETE" }),
   getUserActivities: (userId) => request(`/users/${userId}/activities`),
   getParticipants: (code) => request(`/activities/${code}/participants`),
-  getCheckpoints: (code) => request(`/activities/${code}/checkpoints`),
-  createCheckpoint: (code, payload) => request(`/activities/${code}/checkpoints`, { method: "POST", body: JSON.stringify(payload) }),
+  getNotifications: (userId) => request(`/users/${userId}/notifications`),
+  markNotificationRead: (userId, notificationId) => request(`/users/${userId}/notifications/${notificationId}/read`, { method: "POST" }),
 };

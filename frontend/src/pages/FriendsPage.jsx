@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
+import AppIcon from "../components/AppIcon.jsx";
 import BottomNav from "../components/BottomNav.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 
 const FRIENDS_POLL_INTERVAL_MS = 10000;
@@ -23,6 +25,7 @@ export default function FriendsPage() {
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [confirmation, setConfirmation] = useState(null);
 
   const loadData = useCallback(async (profile, quiet = false) => {
     const [connections, liveLocations] = await Promise.allSettled([
@@ -91,10 +94,24 @@ export default function FriendsPage() {
     }
   }
 
-  async function removeFriend(friend, actionLabel = "Видалити") {
+  function removeFriend(friend, actionLabel = "Видалити") {
     if (!user || deletingId) return;
-    if (!window.confirm(`${actionLabel} запит/зв’язок із ${friend.name}?`)) return;
+    const isAcceptedFriend = friend.status === "accepted";
+    const targetLabel = isAcceptedFriend ? "друга" : "запит";
+    setConfirmation({
+      friend,
+      actionLabel,
+      title: `${actionLabel} ${targetLabel}?`,
+      message: isAcceptedFriend
+        ? `Видалити ${friend.name} із друзів?`
+        : `${actionLabel} запит від ${friend.name}?`,
+    });
+  }
 
+  async function confirmRemoveFriend() {
+    if (!confirmation || !user || deletingId) return;
+    const { friend } = confirmation;
+    setConfirmation(null);
     setError("");
     setMessage("");
     setDeletingId(friend.friendship_id);
@@ -124,7 +141,7 @@ export default function FriendsPage() {
         <div className="eyebrow">Команда</div>
         <h1>Друзі</h1>
         <p className="muted">
-          Додавайте людей за публічним кодом друга. Обидва пристрої мають бути підключені до одного backend.
+          Додавайте людей за публічним кодом друга.
         </p>
 
         <form className="friend-add-form" onSubmit={addFriend}>
@@ -166,7 +183,7 @@ export default function FriendsPage() {
           <h2>Мої друзі</h2>
           {accepted.length === 0 ? (
             <div className="empty-state compact">
-              <div className="empty-state__icon">◎</div>
+              <div className="empty-state__icon"><AppIcon name="friends" /></div>
               <h2>Поки немає друзів</h2>
               <p>Обміняйтеся кодами і прийміть запит.</p>
             </div>
@@ -221,6 +238,14 @@ export default function FriendsPage() {
         {message && <p className="success-message">{message}</p>}
         {error && <p className="error">{error}</p>}
       </div>
+      <ConfirmDialog
+        open={Boolean(confirmation)}
+        title={confirmation?.title}
+        message={confirmation?.message}
+        confirmLabel={confirmation?.actionLabel}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={confirmRemoveFriend}
+      />
       <BottomNav />
     </main>
   );

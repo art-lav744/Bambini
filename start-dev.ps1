@@ -5,7 +5,7 @@ $Backend = Join-Path $Root "backend"
 $Frontend = Join-Path $Root "frontend"
 $Python = Join-Path $Backend ".venv\Scripts\python.exe"
 
-Write-Host "=== Outdoor Together: local development ===" -ForegroundColor Cyan
+Write-Host "=== Bambini: local development ===" -ForegroundColor Cyan
 
 if (-not (Test-Path $Python)) {
     Write-Host "Creating Python virtual environment..." -ForegroundColor Yellow

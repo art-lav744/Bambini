@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../api.js";
 import BottomNav from "../components/BottomNav.jsx";
 import MapLibreMap from "../components/MapLibreMap.jsx";
+import { filterMapEvents, MAP_EVENT_FILTER_OPTIONS, normalizeMapEventFilter } from "../mapEventFilter.js";
+import { filterMapPeopleWithEventParticipants, MAP_PEOPLE_FILTER_OPTIONS, normalizeMapPeopleFilter } from "../mapPeopleFilter.js";
+import { EVENT_TAG_OPTIONS, filterEventsByTags, normalizeEventTags, toggleEventTag } from "../eventTags.js";
+import { DEFAULT_CUSTOMIZATION, normalizeCustomization } from "../customization.js";
 import { ensureCurrentUser } from "../userSession.js";
 
 const LOCATION_UPLOAD_INTERVAL_MS = 8000;
@@ -9,6 +13,33 @@ const LOCATION_HEARTBEAT_MS = 30000;
 const LOCATION_POLL_INTERVAL_MS = 8000;
 const EVENT_POLL_INTERVAL_MS = 20000;
 const SERVER_RETRY_INTERVAL_MS = 10000;
+const PEOPLE_FILTER_STORAGE_KEY = "bambini:map:people-filter";
+const EVENT_FILTER_STORAGE_KEY = "bambini:map:event-filter";
+const EVENT_TAG_FILTER_STORAGE_KEY = "bambini:map:event-tag-filter";
+
+function initialPeopleFilter() {
+  try {
+    return normalizeMapPeopleFilter(localStorage.getItem(PEOPLE_FILTER_STORAGE_KEY));
+  } catch {
+    return "all";
+  }
+}
+
+function initialEventFilter() {
+  try {
+    return normalizeMapEventFilter(localStorage.getItem(EVENT_FILTER_STORAGE_KEY));
+  } catch {
+    return "all";
+  }
+}
+
+function initialEventTagFilter() {
+  try {
+    return normalizeEventTags(JSON.parse(localStorage.getItem(EVENT_TAG_FILTER_STORAGE_KEY) || "[]"), Number.POSITIVE_INFINITY);
+  } catch {
+    return [];
+  }
+}
 
 function geolocationMessage(error) {
   if (error?.code === 1) return "Доступ до геолокації заборонено. Дозвольте його в налаштуваннях браузера.";
@@ -39,6 +70,7 @@ function cachedUser() {
     photo_url: null,
     location_visibility: "none",
     location_sharing_enabled: false,
+    ...DEFAULT_CUSTOMIZATION,
     is_cached: true,
   };
 }
@@ -52,6 +84,12 @@ export default function MapPage() {
   const [serverError, setServerError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [serverOnline, setServerOnline] = useState(false);
+  const [peopleFilter, setPeopleFilter] = useState(initialPeopleFilter);
+  const [eventFilter, setEventFilter] = useState(initialEventFilter);
+  const [eventTagFilter, setEventTagFilter] = useState(initialEventTagFilter);
+  const [peopleFilterExpanded, setPeopleFilterExpanded] = useState(false);
+  const [eventFilterExpanded, setEventFilterExpanded] = useState(false);
+  const [eventTagFilterExpanded, setEventTagFilterExpanded] = useState(false);
 
   const lastUploadAtRef = useRef(0);
   const watchIdRef = useRef(null);
@@ -69,10 +107,12 @@ export default function MapPage() {
   const loadServerUser = useCallback(async () => {
     try {
       const profile = await ensureCurrentUser();
-      setUser(profile);
+      const customization = normalizeCustomization(await api.getCustomization(profile.id));
+      const styledProfile = { ...profile, ...customization };
+      setUser(styledProfile);
       setServerOnline(true);
       setServerError("");
-      return profile;
+      return styledProfile;
     } catch (error) {
       setServerOnline(false);
       setServerError(error instanceof ApiError && error.status === 401
@@ -225,23 +265,144 @@ export default function MapPage() {
   }, [serverOnline, user]);
 
   const visibility = locationVisibility(user);
+  const displayedEvents = useMemo(() => filterEventsByTags(
+    filterMapEvents(eventPins, eventFilter, user?.id),
+    eventTagFilter
+  ), [eventFilter, eventPins, eventTagFilter, user?.id]);
+  const displayedLocations = useMemo(
+    () => filterMapPeopleWithEventParticipants(visibleLocations, peopleFilter, displayedEvents, user?.id),
+    [displayedEvents, peopleFilter, user?.id, visibleLocations]
+  );
   const locationStatus = currentLocation
-    ? `${visibleLocations.length} людей • ${eventPins.length} подій${serverOnline ? "" : " • локально"}`
+    ? `${displayedLocations.length} людей • ${displayedEvents.length} подій${serverOnline ? "" : " • локально"}`
     : !window.isSecureContext ? "Карта доступна • GPS потребує HTTPS"
       : visibility === "none" && user?.id ? "Позиція лише на вашому пристрої"
         : "Очікуємо геолокацію...";
 
   return (
     <main className="fullscreen-map-page">
-      <MapLibreMap currentUser={user} currentLocation={currentLocation} friendLocations={visibleLocations}
-        eventPins={eventPins} onLocationFound={handleLocationFound} onJoinEvent={joinNearbyEvent}
-        onAddFriend={addVisibleUserToFriends} enableLocation />
+      <MapLibreMap currentUser={user} currentLocation={currentLocation} friendLocations={displayedLocations}
+        eventPins={displayedEvents} onLocationFound={handleLocationFound} onJoinEvent={joinNearbyEvent}
+        onAddFriend={addVisibleUserToFriends} enableLocation autoCenterOnUser />
       <div className="map-brand-card map-user-card">
         <span className={`map-brand-card__dot${currentLocation ? " is-live" : ""}`} />
-        <div><strong>{user?.name || "Outdoor Together"}</strong><span>{locationStatus}</span></div>
+        <div><strong>{user?.name || "Bambini"}</strong><span>{locationStatus}</span></div>
+      </div>
+      <div className="map-filter-stack">
+        <div className={`map-layer-filter map-people-filter${peopleFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label="Кого показувати на карті">
+          <button
+            className={`map-layer-filter__label${peopleFilterExpanded ? " is-expanded" : ""}`}
+            type="button"
+            aria-expanded={peopleFilterExpanded}
+            aria-controls="map-people-filter-options"
+            onClick={() => setPeopleFilterExpanded((expanded) => !expanded)}
+          >
+            Люди
+          </button>
+          {peopleFilterExpanded && (
+            <div className="map-layer-filter__options" id="map-people-filter-options">
+              {MAP_PEOPLE_FILTER_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  className={peopleFilter === option.value ? "is-active" : ""}
+                  type="button"
+                  aria-pressed={peopleFilter === option.value}
+                  onClick={() => {
+                    setPeopleFilter(option.value);
+                    try {
+                      localStorage.setItem(PEOPLE_FILTER_STORAGE_KEY, option.value);
+                    } catch {
+                      // The filter still works for this session if storage is unavailable.
+                    }
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className={`map-layer-filter map-event-filter${eventFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label="Які події показувати на карті">
+          <button
+            className={`map-layer-filter__label${eventFilterExpanded ? " is-expanded" : ""}`}
+            type="button"
+            aria-expanded={eventFilterExpanded}
+            aria-controls="map-event-filter-options"
+            onClick={() => setEventFilterExpanded((expanded) => !expanded)}
+          >
+            Події
+          </button>
+          {eventFilterExpanded && (
+            <div className="map-layer-filter__options" id="map-event-filter-options">
+              {MAP_EVENT_FILTER_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  className={eventFilter === option.value ? "is-active" : ""}
+                  type="button"
+                  aria-pressed={eventFilter === option.value}
+                  onClick={() => {
+                    setEventFilter(option.value);
+                    try {
+                      localStorage.setItem(EVENT_FILTER_STORAGE_KEY, option.value);
+                    } catch {
+                      // The filter still works for this session if storage is unavailable.
+                    }
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className={`map-layer-filter map-tag-filter${eventTagFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label="Фільтр подій за тегами">
+          <button
+            className={`map-layer-filter__label${eventTagFilterExpanded ? " is-expanded" : ""}`}
+            type="button"
+            aria-expanded={eventTagFilterExpanded}
+            aria-controls="map-tag-filter-options"
+            onClick={() => setEventTagFilterExpanded((expanded) => !expanded)}
+          >
+            Теги{eventTagFilter.length ? ` ${eventTagFilter.length}` : ""}
+          </button>
+          {eventTagFilterExpanded && (
+            <div className="map-tag-filter__options" id="map-tag-filter-options">
+              <button
+                className={eventTagFilter.length === 0 ? "is-active" : ""}
+                type="button"
+                aria-pressed={eventTagFilter.length === 0}
+                onClick={() => {
+                  setEventTagFilter([]);
+                  try { localStorage.setItem(EVENT_TAG_FILTER_STORAGE_KEY, "[]"); } catch { /* Session-only filter. */ }
+                }}
+              >
+                Усі теги
+              </button>
+              {EVENT_TAG_OPTIONS.map((tag) => (
+                <button
+                  key={tag.value}
+                  className={eventTagFilter.includes(tag.value) ? "is-active" : ""}
+                  type="button"
+                  aria-pressed={eventTagFilter.includes(tag.value)}
+                  onClick={() => setEventTagFilter((current) => {
+                    const next = toggleEventTag(current, tag.value, Number.POSITIVE_INFINITY);
+                    try { localStorage.setItem(EVENT_TAG_FILTER_STORAGE_KEY, JSON.stringify(next)); } catch { /* Session-only filter. */ }
+                    return next;
+                  })}
+                >
+                  {tag.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       {serverError && <div className="map-server-toast">{serverError}</div>}
-      {(locationError || actionMessage) && <div className="map-global-toast">{locationError || actionMessage}</div>}
+      {(locationError || actionMessage) && (
+        <div className={`map-global-toast${actionMessage && !locationError ? " is-success" : ""}`}>
+          {locationError || actionMessage}
+        </div>
+      )}
       <BottomNav />
     </main>
   );

@@ -12,6 +12,57 @@ export function haversineMeters(lngLatA, lngLatB) {
   return 2 * earthRadius * Math.asin(Math.sqrt(a));
 }
 
+function coordinatesFrom(value) {
+  const rawLongitude = value?.longitude ?? value?.lng;
+  const rawLatitude = value?.latitude ?? value?.lat;
+  if (rawLongitude == null || rawLatitude == null) return null;
+  const longitude = Number(rawLongitude);
+  const latitude = Number(rawLatitude);
+  if (
+    !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
+    !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+  ) return null;
+  return [longitude, latitude];
+}
+
+export function distanceToEventMeters(event, userLocation) {
+  const eventCoordinates = coordinatesFrom(event);
+  const userCoordinates = coordinatesFrom(userLocation);
+  if (!eventCoordinates || !userCoordinates) return null;
+  return haversineMeters(userCoordinates, eventCoordinates);
+}
+
+export function eventsWithDistance(events, userLocation) {
+  return (Array.isArray(events) ? events : [])
+    .map((event, originalIndex) => ({
+      event,
+      originalIndex,
+      distanceMeters: distanceToEventMeters(event, userLocation),
+    }))
+    .sort((left, right) => {
+      const leftKnown = Number.isFinite(left.distanceMeters);
+      const rightKnown = Number.isFinite(right.distanceMeters);
+      if (leftKnown && rightKnown) return left.distanceMeters - right.distanceMeters || left.originalIndex - right.originalIndex;
+      if (leftKnown) return -1;
+      if (rightKnown) return 1;
+      return left.originalIndex - right.originalIndex;
+    })
+    .map(({ event, distanceMeters }) => ({ event, distanceMeters }));
+}
+
+export function formatEventDistance(distanceMeters) {
+  const distance = Number(distanceMeters);
+  if (!Number.isFinite(distance) || distance < 0) return "";
+  if (distance < 1000) {
+    const roundedMeters = distance < 100 ? Math.round(distance) : Math.round(distance / 10) * 10;
+    return `${roundedMeters} м`;
+  }
+  const kilometers = distance / 1000;
+  if (kilometers >= 10) return `${Math.round(kilometers)} км`;
+  const roundedKilometers = Math.round(kilometers * 10) / 10;
+  return `${String(roundedKilometers).replace(".", ",")} км`;
+}
+
 export function isWithinEventGeofence(eventCoords, userCoords, accuracy = 0) {
   const safeAccuracy = Math.min(Math.max(Number(accuracy) || 0, 0), EVENT_LOCATION_MAX_ACCURACY_METERS);
   const allowed = Math.max(EVENT_LOCATION_MIN_EFFECTIVE_METERS, EVENT_LOCATION_BASE_METERS + safeAccuracy);
@@ -37,4 +88,14 @@ export function limitEventOrbitUsers(users, maxUsers = 8) {
     ...visiblePeople,
     { isOverflow: true, overflowCount: users.length - visiblePeople.length },
   ];
+}
+
+export function prioritizeEventOrbitUsers(users) {
+  return (Array.isArray(users) ? users : [])
+    .map((user, originalIndex) => ({ user, originalIndex }))
+    .sort((left, right) => {
+      const rank = (entry) => entry.isCurrent ? 0 : entry.user?.friendship_status === "accepted" ? 1 : 2;
+      return rank(left.user) - rank(right.user) || left.originalIndex - right.originalIndex;
+    })
+    .map(({ user }) => user);
 }

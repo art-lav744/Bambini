@@ -43,6 +43,104 @@ def _require_aware_datetime(value: datetime | None, field_name: str) -> datetime
     return value.astimezone(timezone.utc)
 
 
+ACTIVITY_TAGS = (
+    "sport", "football", "basketball", "volleyball", "tennis", "table-tennis",
+    "badminton", "padel-squash", "running", "cycling", "skate-roller", "swimming-pool",
+    "water-sports", "martial-arts", "gymnastics-acro", "climbing", "extreme-sports", "winter-sports",
+    "chess", "billiards-bowling", "golf", "walk", "picnic", "hiking",
+    "camping", "excursion", "fishing-hunting", "stargazing", "birdwatching", "music-concert",
+    "music-fest", "opera-ballet", "theater", "cinema-openair", "standup-comedy", "karaoke",
+    "dj-set", "jam-session", "musical-instrument-lessons", "art-exhibition", "museum", "literature-club",
+    "poetry-night", "painting-drawing", "sculpture-pottery", "photography", "handicraft", "modelling",
+    "dance-bachata", "dance-modern", "board-games", "rpg-dnd", "pub-quiz", "gaming-pc-console",
+    "esports", "anime-cosplay", "comic-con", "coffee", "tea-ceremony", "wine-tasting",
+    "craft-beer", "cocktail-party", "food-court", "restaurant-opening", "cooking-masterclass", "vegan-vegetarian",
+    "party-home", "night-club", "bar-hopping", "pool-party", "networking", "speed-dating",
+    "business-conference", "startup-pitch", "it-meetup", "marketing-pr", "crypto-web3", "investing-finance",
+    "e-commerce", "lecture", "seminar-training", "language-club", "science-pop", "tedx-format",
+    "oratory-skills", "family-day", "kids-entertainment", "kids-development", "parenting-club", "baby-fairs",
+    "fitness-group", "yoga-stretching", "meditation-sound-healing", "psychology-group", "beauty-day", "healthy-lifestyle",
+    "spa-sauna", "charity-auction", "volunteer-work", "eco-cleanup", "animal-shelter-help", "blood-donation",
+    "urbanism-community", "garage-sale", "flea-market", "pop-up-market", "fashion-show", "book-fair",
+    "auto-show", "moto-meetup", "karting-race", "test-drive", "pets-walk", "pet-exhibition",
+    "pet-friendly-event", "music", "cinema", "party", "family", "kids",
+)
+ACTIVITY_TAG_ALIASES = {
+    "спорт": "sport",
+    "футбол": "football",
+    "баскетбол": "basketball",
+    "волейбол": "volleyball",
+    "теніс": "tennis",
+    "біг": "running",
+    "велосипед": "cycling",
+    "прогулянка": "walk",
+    "пікнік": "picnic",
+    "туризм": "hiking",
+    "музика": "music",
+    "кіно": "cinema",
+    "настільні ігри": "board-games",
+    "вечірка": "party",
+    "кава": "coffee",
+    "сім’я": "family",
+    "сім'я": "family",
+    "діти": "kids",
+    "знайомства": "networking",
+}
+_ACTIVITY_TAG_LOOKUP = {tag.casefold(): tag for tag in ACTIVITY_TAGS} | ACTIVITY_TAG_ALIASES
+
+ORCA_SKINS = {"default", "dolphin"}
+HEADER_STYLES = {"default", "ukrainian", "space", "hawaii", "otaku", "skater"}
+BOTTOM_STYLES = {
+    "default", "ukrainian", "cottagecore", "cyberpunk", "glitch", "hawaii", "mexica",
+    "otaku", "skater", "space", "y2k", "gimnazia",
+}
+BACKGROUND_STYLES = {
+    "default", "sunflowers", "sakura", "tropical-beach", "city", "shop",
+    "skatepark", "space", "fountain", "garden", "color-splash", "digital-world",
+    "pixel-world", "concert", "candy-land", "pirate-bay", "ice-castle", "volcano",
+    "medieval-castle", "desert", "arcade",
+}
+THEMES = {"dark", "neon", "blue", "green", "red", "sunset"}
+REMOVED_THEMES = {"light", "forest"}
+
+
+def _customization_choice(value: str, allowed: set[str], field_name: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized not in allowed:
+        raise ValueError(f"unsupported {field_name}")
+    return normalized
+
+
+def normalize_activity_tags(value, *, reject_unknown: bool = True) -> list[str]:
+    if value is None:
+        return []
+    items = value.split(",") if isinstance(value, str) else value
+    if not isinstance(items, (list, tuple, set)):
+        raise ValueError("tags must be a list")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        raw_tag = re.sub(r"\s+", " ", str(item or "")).strip().lstrip("#").strip()
+        if not raw_tag:
+            continue
+        tag = _ACTIVITY_TAG_LOOKUP.get(raw_tag.casefold())
+        if tag is None:
+            if reject_unknown:
+                raise ValueError(f"unknown event tag: {raw_tag}")
+            continue
+        key = tag.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(tag)
+    if len(normalized) > 5:
+        if reject_unknown:
+            raise ValueError("an event can contain at most 5 tags")
+        return normalized[:5]
+    return normalized
+
+
 class ActivityBase(SQLModel):
     title: str = Field(min_length=3, max_length=120)
     description: str = Field(default="", max_length=1000)
@@ -65,6 +163,7 @@ class Activity(ActivityBase, table=True):
     image_url: str | None = Field(default=None, max_length=1000)
     capacity: int | None = Field(default=None, ge=1, le=50)
     pin_type: str = Field(default="default", max_length=30)
+    tags_json: str = Field(default="[]", max_length=1000)
     start_time: datetime | None = None
     end_time: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)
@@ -80,8 +179,14 @@ class ActivityCreate(ActivityBase):
     image_url: str | None = Field(default=None, max_length=3_000_000)
     capacity: int | None = Field(default=None, ge=1, le=50)
     pin_type: str = Field(default="default", max_length=30)
+    tags: list[str] = Field(default_factory=list)
     start_time: datetime
     end_time: datetime | None = None
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def validate_tags(cls, value):
+        return normalize_activity_tags(value)
 
     @field_validator("start_time", mode="after")
     @classmethod
@@ -100,6 +205,46 @@ class ActivityCreate(ActivityBase):
         return self
 
 
+class ActivityUpdate(SQLModel):
+    title: str | None = Field(default=None, min_length=3, max_length=120)
+    description: str | None = Field(default=None, max_length=1000)
+    visibility: str | None = Field(default=None, min_length=6, max_length=20)
+    image_url: str | None = Field(default=None, max_length=3_000_000)
+    capacity: int | None = Field(default=None, ge=1, le=50)
+    pin_type: str | None = Field(default=None, max_length=30)
+    tags: list[str] | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def validate_tags(cls, value):
+        if value is None:
+            return None
+        return normalize_activity_tags(value)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def validate_title(cls, value):
+        if value is None:
+            return None
+        return _clean_required(str(value), "title", 3, 120)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def validate_description(cls, value):
+        if value is None:
+            return None
+        return str(value).strip()
+
+    @field_validator("start_time", "end_time", mode="after")
+    @classmethod
+    def validate_datetime(cls, value, info):
+        return _require_aware_datetime(value, info.field_name)
+
+
 class ActivityJoin(SQLModel):
     user_id: int | None = None
 
@@ -111,6 +256,7 @@ class ActivityRead(ActivityBase):
     image_url: str | None
     capacity: int | None
     pin_type: str
+    tags: list[str] = Field(default_factory=list)
     participant_count: int = 0
     participant_user_ids: list[int] = Field(default_factory=list)
     start_time: datetime | None
@@ -147,6 +293,10 @@ class EventParticipantRead(SQLModel):
     photo_url: str | None
     is_host: bool
     joined_at: datetime
+    friend_code: str | None = None
+    friendship_id: int | None = None
+    friendship_status: str | None = None
+    friendship_direction: str | None = None
 
 
 # Legacy tables retained so existing local databases remain readable.
@@ -170,34 +320,6 @@ class ParticipantRead(SQLModel):
     joined_at: datetime
 
 
-class Checkpoint(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    activity_id: int = Field(foreign_key="activity.id", index=True, ondelete="CASCADE")
-    title: str = Field(min_length=2, max_length=120)
-    description: str = Field(default="", max_length=500)
-    latitude: float
-    longitude: float
-    order_index: int = 0
-
-
-class CheckpointCreate(SQLModel):
-    title: str = Field(min_length=2, max_length=120)
-    description: str = Field(default="", max_length=500)
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
-    order_index: int = 0
-
-    @field_validator("title", mode="before")
-    @classmethod
-    def validate_title(cls, value):
-        return _clean_required(str(value or ""), "title", 2, 120)
-
-
-class CheckpointRead(CheckpointCreate):
-    id: int
-    activity_id: int
-
-
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(min_length=2, max_length=60)
@@ -209,6 +331,109 @@ class User(SQLModel, table=True):
     location_sharing_enabled: bool = True
     location_visibility: str = Field(default="friends", max_length=20)
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class UserCustomizationBase(SQLModel):
+    orca_skin: str = Field(default="default", max_length=50)
+    header_style: str = Field(default="default", max_length=50)
+    bottom_style: str = Field(default="default", max_length=50)
+    theme: str = Field(default="dark", max_length=20)
+
+    @field_validator("orca_skin", mode="before")
+    @classmethod
+    def validate_orca_skin(cls, value):
+        return _customization_choice(value, ORCA_SKINS, "orca_skin")
+
+    @field_validator("header_style", mode="before")
+    @classmethod
+    def validate_header_style(cls, value):
+        if str(value or "").strip().lower() == "none":
+            return "default"
+        return _customization_choice(value, HEADER_STYLES, "header_style")
+
+    @field_validator("bottom_style", mode="before")
+    @classmethod
+    def validate_bottom_style(cls, value):
+        if str(value or "").strip().lower() == "none":
+            return "default"
+        return _customization_choice(value, BOTTOM_STYLES, "bottom_style")
+
+    @field_validator("theme", mode="before")
+    @classmethod
+    def validate_theme(cls, value):
+        if str(value or "").strip().lower() in REMOVED_THEMES:
+            return "dark"
+        return _customization_choice(value, THEMES, "theme")
+
+    @model_validator(mode="after")
+    def prevent_dolphin_equipment(self):
+        if self.orca_skin == "dolphin":
+            self.header_style = "default"
+            self.bottom_style = "default"
+        return self
+
+
+class UserCustomization(UserCustomizationBase, table=True):
+    __tablename__ = "user_customizations"
+
+    user_id: int = Field(primary_key=True, foreign_key="user.id", ondelete="CASCADE")
+
+
+class UserCustomizationRead(UserCustomizationBase):
+    user_id: int
+    background_style: str = "default"
+
+
+class UserCustomizationUpdate(UserCustomizationBase):
+    background_style: str = Field(default="default", max_length=50)
+
+    @field_validator("background_style", mode="before")
+    @classmethod
+    def validate_background_style(cls, value):
+        return _customization_choice(value, BACKGROUND_STYLES, "background_style")
+
+
+class UserCosmeticSelection(SQLModel, table=True):
+    __tablename__ = "user_cosmetic_selections"
+
+    user_id: int = Field(primary_key=True, foreign_key="user.id", ondelete="CASCADE")
+    background_style: str = Field(default="default", max_length=50)
+
+    @field_validator("background_style", mode="before")
+    @classmethod
+    def validate_background_style(cls, value):
+        return _customization_choice(value, BACKGROUND_STYLES, "background_style")
+
+
+class UserAchievement(SQLModel, table=True):
+    __tablename__ = "user_achievements"
+    __table_args__ = (UniqueConstraint("user_id", "achievement_id", name="uq_user_achievement"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    achievement_id: str = Field(index=True, max_length=60)
+    unlocked_at: datetime = Field(default_factory=utc_now)
+
+
+class AchievementRead(SQLModel):
+    id: str
+    category: str
+    category_label: str
+    title: str
+    description: str
+    reward_name: str
+    reward_field: str
+    reward_value: str
+    progress: int
+    target: int
+    unlocked: bool
+    unlocked_at: datetime | None = None
+
+
+class AchievementSummaryRead(SQLModel):
+    unlocked_count: int
+    total_count: int
+    achievements: list[AchievementRead] = Field(default_factory=list)
 
 
 class UserCreate(SQLModel):
@@ -278,6 +503,26 @@ class GoogleLogin(SQLModel):
 class AuthRead(SQLModel):
     token: str
     user: UserRead
+    email_verification_required: bool = False
+
+
+class EmailVerificationCodeInput(SQLModel):
+    code: str = Field(min_length=6, max_length=6)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def validate_code(cls, value):
+        normalized = re.sub(r"\s+", "", str(value or ""))
+        if not re.fullmatch(r"\d{6}", normalized):
+            raise ValueError("code must contain exactly 6 digits")
+        return normalized
+
+
+class EmailVerificationStatusRead(SQLModel):
+    required: bool
+    email: str
+    expires_at: datetime | None = None
+    resend_after_seconds: int = 0
 
 
 class AuthSession(SQLModel, table=True):
@@ -286,6 +531,17 @@ class AuthSession(SQLModel, table=True):
     token_hash: str = Field(index=True, unique=True, max_length=64)
     created_at: datetime = Field(default_factory=utc_now)
     expires_at: datetime
+
+
+class EmailVerificationChallenge(SQLModel, table=True):
+    __tablename__ = "email_verification_challenges"
+
+    user_id: int = Field(primary_key=True, foreign_key="user.id", ondelete="CASCADE")
+    code_hash: str = Field(max_length=64)
+    expires_at: datetime
+    last_sent_at: datetime
+    attempts: int = Field(default=0, ge=0)
+    verified_at: datetime | None = None
 
 
 class Friendship(SQLModel, table=True):
@@ -351,3 +607,29 @@ class FriendLocationRead(SQLModel):
     presence: str
     friend_code: str | None = None
     friendship_status: str | None = None
+    orca_skin: str = "default"
+    header_style: str = "default"
+    bottom_style: str = "default"
+    background_style: str = "default"
+    theme: str = "dark"
+
+
+class UserNotification(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    kind: str = Field(max_length=40)
+    message: str = Field(max_length=500)
+    event_code: str | None = Field(default=None, max_length=6)
+    event_title: str = Field(default="", max_length=120)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+    read_at: datetime | None = None
+
+
+class UserNotificationRead(SQLModel):
+    id: int
+    kind: str
+    message: str
+    event_code: str | None
+    event_title: str
+    created_at: datetime
+    read_at: datetime | None

@@ -4,19 +4,24 @@ import base64
 import binascii
 import hashlib
 import hmac
+import json
 import math
 import mimetypes
 import os
 import secrets
+import smtplib
+import ssl
 import string
 import threading
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from pathlib import Path
 from typing import Iterable
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -26,17 +31,22 @@ from sqlalchemy import or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
+from .achievements import required_achievement, sync_user_achievements, unlocked_reward_keys
 from .database import BACKEND_DIR, create_db_and_tables, engine, get_session
 from .models import (
+    AchievementSummaryRead,
     Activity,
     ActivityCreate,
     ActivityJoin,
     ActivityRead,
+    ActivityUpdate,
     AuthRead,
     AuthSession,
-    Checkpoint,
-    CheckpointCreate,
-    CheckpointRead,
+    EmailVerificationChallenge,
+    EmailVerificationCodeInput,
+    EmailVerificationStatusRead,
     EventLocation,
     EventMember,
     EventOwner,
@@ -49,12 +59,20 @@ from .models import (
     LocationSharingUpdate,
     LocationUpdate,
     LocationVisibilityUpdate,
+    Participant,
     User,
+    UserCosmeticSelection,
+    UserCustomization,
+    UserCustomizationRead,
+    UserCustomizationUpdate,
     UserCreate,
     UserLocation,
     UserLogin,
+    UserNotification,
+    UserNotificationRead,
     UserRead,
     UserUpdate,
+    normalize_activity_tags,
     utc_now,
 )
 
@@ -68,11 +86,32 @@ EVENT_LOCATION_MIN_EFFECTIVE_METERS = 75
 EVENT_LOCATION_MAX_ACCURACY_METERS = 100
 LIVE_LOCATION_MAX_AGE_SECONDS = 8 * 60 * 60
 AUTH_TOKEN_DAYS = 30
+MAX_EVENTS_PER_USER = 3
 MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BACKEND_DIR / "media"))).resolve()
 EVENT_MEDIA_DIR = MEDIA_ROOT / "events"
 PROFILE_MEDIA_DIR = MEDIA_ROOT / "profiles"
 FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USERNAME).strip()
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Bambini").strip() or "Bambini"
+SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "true").strip().lower() in {"1", "true", "yes", "on"}
+EMAIL_VERIFICATION_ENABLED = os.getenv(
+    "EMAIL_VERIFICATION_ENABLED",
+    "true" if SMTP_USERNAME and SMTP_PASSWORD else "false",
+).strip().lower() in {"1", "true", "yes", "on"}
+EMAIL_VERIFICATION_SECRET = (
+    os.getenv("EMAIL_VERIFICATION_SECRET", "").strip()
+    or SMTP_PASSWORD
+    or GOOGLE_CLIENT_ID
+    or "bambini-development-verification"
+)
+EMAIL_VERIFICATION_TTL_MINUTES = 10
+EMAIL_VERIFICATION_RESEND_SECONDS = 60
+EMAIL_VERIFICATION_MAX_ATTEMPTS = 5
 
 security = HTTPBearer(auto_error=False)
 _rate_lock = threading.Lock()
@@ -146,6 +185,101 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _verification_code_hash(user_id: int, code: str) -> str:
+    return hmac.new(
+        EMAIL_VERIFICATION_SECRET.encode("utf-8"),
+        f"{user_id}:{code}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def email_verification_required(session: Session, user: User) -> bool:
+    if not EMAIL_VERIFICATION_ENABLED or user.google_sub or not user.email:
+        return False
+    challenge = session.get(EmailVerificationChallenge, user.id)
+    return challenge is None or challenge.verified_at is None
+
+
+def email_verification_status(session: Session, user: User) -> EmailVerificationStatusRead:
+    challenge = session.get(EmailVerificationChallenge, user.id)
+    now = utc_now()
+    resend_after_seconds = 0
+    if challenge and challenge.verified_at is None:
+        elapsed = (now - normalized_utc(challenge.last_sent_at)).total_seconds()
+        resend_after_seconds = max(0, math.ceil(EMAIL_VERIFICATION_RESEND_SECONDS - elapsed))
+    return EmailVerificationStatusRead(
+        required=email_verification_required(session, user),
+        email=user.email or "",
+        expires_at=challenge.expires_at if challenge and challenge.verified_at is None else None,
+        resend_after_seconds=resend_after_seconds,
+    )
+
+
+def send_verification_email(recipient: str, code: str) -> None:
+    if not SMTP_HOST or not SMTP_USERNAME or not SMTP_PASSWORD or not SMTP_FROM_EMAIL:
+        raise HTTPException(status_code=503, detail="Надсилання email ще не налаштовано")
+
+    message = EmailMessage()
+    message["Subject"] = "Код підтвердження Bambini"
+    message["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
+    message["To"] = recipient
+    message.set_content(
+        "Ваш код підтвердження Bambini:\n\n"
+        f"{code}\n\n"
+        f"Код діє {EMAIL_VERIFICATION_TTL_MINUTES} хвилин. "
+        "Якщо ви не створювали акаунт, проігноруйте цей лист."
+    )
+
+    try:
+        context = ssl.create_default_context()
+        if SMTP_USE_SSL:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15, context=context) as smtp:
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+                smtp.send_message(message)
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
+                smtp.starttls(context=context)
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+                smtp.send_message(message)
+    except (OSError, smtplib.SMTPException):
+        raise HTTPException(status_code=503, detail="Не вдалося надіслати код. Спробуйте ще раз пізніше")
+
+
+def issue_email_verification_code(session: Session, user: User) -> EmailVerificationChallenge:
+    if not user.email:
+        raise HTTPException(status_code=400, detail="Для акаунта не вказано email")
+    now = utc_now()
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    # Only start the resend cooldown after the message was accepted by SMTP.
+    # Otherwise a temporary delivery failure immediately turns into a 429.
+    send_verification_email(user.email, code)
+    challenge = session.get(EmailVerificationChallenge, user.id)
+    if challenge is None:
+        challenge = EmailVerificationChallenge(
+            user_id=user.id,
+            code_hash=_verification_code_hash(user.id, code),
+            expires_at=now + timedelta(minutes=EMAIL_VERIFICATION_TTL_MINUTES),
+            last_sent_at=now,
+        )
+    else:
+        challenge.code_hash = _verification_code_hash(user.id, code)
+        challenge.expires_at = now + timedelta(minutes=EMAIL_VERIFICATION_TTL_MINUTES)
+        challenge.last_sent_at = now
+        challenge.attempts = 0
+        challenge.verified_at = None
+    session.add(challenge)
+    session.commit()
+    return challenge
+
+
+def ensure_email_verification_code(session: Session, user: User) -> None:
+    if not email_verification_required(session, user):
+        return
+    challenge = session.get(EmailVerificationChallenge, user.id)
+    if challenge is None or normalized_utc(challenge.expires_at) <= utc_now():
+        issue_email_verification_code(session, user)
+
+
 def create_auth(session: Session, user: User) -> AuthRead:
     token = secrets.token_urlsafe(48)
     auth = AuthSession(
@@ -155,10 +289,14 @@ def create_auth(session: Session, user: User) -> AuthRead:
     )
     session.add(auth)
     session.commit()
-    return AuthRead(token=token, user=user_read(user))
+    return AuthRead(
+        token=token,
+        user=user_read(user),
+        email_verification_required=email_verification_required(session, user),
+    )
 
 
-def get_current_user(
+def get_authenticated_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     session: Session = Depends(get_session),
 ) -> User:
@@ -176,6 +314,15 @@ def get_current_user(
     if user is None:
         raise HTTPException(status_code=401, detail="Користувача сесії не знайдено")
     return user
+
+
+def get_current_user(
+    current_user: User = Depends(get_authenticated_user),
+    session: Session = Depends(get_session),
+) -> User:
+    if email_verification_required(session, current_user):
+        raise HTTPException(status_code=403, detail="Підтвердьте email, щоб користуватися Bambini")
+    return current_user
 
 
 def require_same_user(path_user_id: int, current_user: User) -> None:
@@ -398,6 +545,13 @@ def serialize_activities(activities: Iterable[Activity], session: Session) -> li
         owner = owners.get(activity.id)
         location = locations.get(activity.id)
         members = memberships_by_activity.get(activity.id, [])
+        try:
+            tags = normalize_activity_tags(
+                json.loads(activity.tags_json or "[]"),
+                reject_unknown=False,
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            tags = []
         result.append(ActivityRead(
             id=activity.id,
             title=activity.title,
@@ -407,10 +561,11 @@ def serialize_activities(activities: Iterable[Activity], session: Session) -> li
             image_url=activity.image_url,
             capacity=activity.capacity,
             pin_type=activity.pin_type,
+            tags=tags,
             participant_count=len(members),
             participant_user_ids=[member.user_id for member in members],
-            start_time=activity.start_time,
-            end_time=activity.end_time,
+            start_time=normalized_utc(activity.start_time) if activity.start_time else None,
+            end_time=normalized_utc(activity.end_time) if activity.end_time else None,
             created_at=activity.created_at,
             host_user_id=owner.user_id if owner else None,
             latitude=location.latitude if location else None,
@@ -421,6 +576,30 @@ def serialize_activities(activities: Iterable[Activity], session: Session) -> li
 
 def activity_to_read(activity: Activity, session: Session) -> ActivityRead:
     return serialize_activities([activity], session)[0]
+
+
+def notify_event_members(
+    session: Session,
+    activity_id: int,
+    actor_user_id: int,
+    kind: str,
+    message: str,
+    event_code: str,
+    event_title: str,
+) -> None:
+    memberships = session.exec(
+        select(EventMember).where(EventMember.activity_id == activity_id)
+    ).all()
+    for membership in memberships:
+        if membership.user_id == actor_user_id:
+            continue
+        session.add(UserNotification(
+            user_id=membership.user_id,
+            kind=kind,
+            message=message,
+            event_code=event_code,
+            event_title=event_title,
+        ))
 
 
 @asynccontextmanager
@@ -477,6 +656,53 @@ def health():
 
 # -------------------- Authentication --------------------
 
+def ensure_user_customization(session: Session, user_id: int) -> UserCustomization:
+    customization = session.get(UserCustomization, user_id)
+    if customization is None:
+        customization = UserCustomization(user_id=user_id)
+        session.add(customization)
+    return customization
+
+
+def ensure_user_cosmetic_selection(session: Session, user_id: int) -> UserCosmeticSelection:
+    selection = session.get(UserCosmeticSelection, user_id)
+    if selection is None:
+        selection = UserCosmeticSelection(user_id=user_id)
+        session.add(selection)
+    return selection
+
+
+def customization_read(
+    customization: UserCustomization,
+    selection: UserCosmeticSelection,
+) -> UserCustomizationRead:
+    return UserCustomizationRead(
+        user_id=customization.user_id,
+        orca_skin=customization.orca_skin,
+        header_style=customization.header_style,
+        bottom_style=customization.bottom_style,
+        background_style=selection.background_style,
+        theme=customization.theme,
+    )
+
+
+def reset_locked_cosmetics(
+    customization: UserCustomization,
+    selection: UserCosmeticSelection,
+    unlocked_rewards: set[tuple[str, str]],
+) -> bool:
+    changed = False
+    for field, holder in (
+        ("header_style", customization),
+        ("bottom_style", customization),
+        ("background_style", selection),
+    ):
+        value = getattr(holder, field)
+        if required_achievement(field, value) and (field, value) not in unlocked_rewards:
+            setattr(holder, field, "default")
+            changed = True
+    return changed
+
 @app.post("/users", response_model=AuthRead, status_code=status.HTTP_201_CREATED)
 def create_user(data: UserCreate, request: Request, session: Session = Depends(get_session)):
     check_rate_limit(request, "register", 8, 600)
@@ -493,11 +719,23 @@ def create_user(data: UserCreate, request: Request, session: Session = Depends(g
     )
     session.add(user)
     try:
+        session.flush()
+        ensure_user_customization(session, user.id)
+        ensure_user_cosmetic_selection(session, user.id)
         session.commit()
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="Email already використовується")
     session.refresh(user)
+    try:
+        ensure_email_verification_code(session, user)
+    except HTTPException:
+        # Registration is one operation from the user's point of view. If the
+        # first verification message cannot be sent, remove the unfinished
+        # account so retrying registration does not incorrectly return 409.
+        session.delete(user)
+        session.commit()
+        raise
     return create_auth(session, user)
 
 
@@ -512,6 +750,11 @@ def login_user(data: UserLogin, request: Request, session: Session = Depends(get
         session.add(user)
         session.commit()
         session.refresh(user)
+    if session.get(UserCustomization, user.id) is None or session.get(UserCosmeticSelection, user.id) is None:
+        ensure_user_customization(session, user.id)
+        ensure_user_cosmetic_selection(session, user.id)
+        session.commit()
+    ensure_email_verification_code(session, user)
     return create_auth(session, user)
 
 
@@ -548,16 +791,81 @@ def google_login(data: GoogleLogin, request: Request, session: Session = Depends
             raise HTTPException(status_code=409, detail="Цей email уже пов’язаний з іншим Google акаунтом")
         else:
             user.google_sub = google_sub
-        session.add(user)
-        session.commit()
-        session.refresh(user)
+    session.add(user)
+    session.flush()
+    ensure_user_customization(session, user.id)
+    ensure_user_cosmetic_selection(session, user.id)
+    session.commit()
+    session.refresh(user)
     return create_auth(session, user)
+
+
+@app.get("/email-verification/status", response_model=EmailVerificationStatusRead)
+def get_email_verification_status(
+    current_user: User = Depends(get_authenticated_user),
+    session: Session = Depends(get_session),
+):
+    return email_verification_status(session, current_user)
+
+
+@app.post("/email-verification/verify", response_model=UserRead)
+def verify_email(
+    data: EmailVerificationCodeInput,
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
+    session: Session = Depends(get_session),
+):
+    check_rate_limit(request, f"email-verify:{current_user.id}", 10, 600)
+    if not email_verification_required(session, current_user):
+        return current_user
+
+    challenge = session.get(EmailVerificationChallenge, current_user.id)
+    if challenge is None or normalized_utc(challenge.expires_at) <= utc_now():
+        raise HTTPException(status_code=409, detail="Код прострочено. Надішліть новий код")
+    if challenge.attempts >= EMAIL_VERIFICATION_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Забагато невдалих спроб. Надішліть новий код")
+
+    expected = _verification_code_hash(current_user.id, data.code)
+    if not hmac.compare_digest(challenge.code_hash, expected):
+        challenge.attempts += 1
+        session.add(challenge)
+        session.commit()
+        remaining = max(0, EMAIL_VERIFICATION_MAX_ATTEMPTS - challenge.attempts)
+        if remaining == 0:
+            raise HTTPException(status_code=429, detail="Забагато невдалих спроб. Надішліть новий код")
+        raise HTTPException(status_code=422, detail=f"Невірний код. Залишилося спроб: {remaining}")
+
+    challenge.verified_at = utc_now()
+    challenge.attempts = 0
+    session.add(challenge)
+    session.commit()
+    return current_user
+
+
+@app.post("/email-verification/resend", response_model=EmailVerificationStatusRead)
+def resend_email_verification(
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
+    session: Session = Depends(get_session),
+):
+    check_rate_limit(request, f"email-resend:{current_user.id}", 5, 3600)
+    if not email_verification_required(session, current_user):
+        return email_verification_status(session, current_user)
+
+    challenge = session.get(EmailVerificationChallenge, current_user.id)
+    if challenge is not None:
+        elapsed = (utc_now() - normalized_utc(challenge.last_sent_at)).total_seconds()
+        retry_after = math.ceil(EMAIL_VERIFICATION_RESEND_SECONDS - elapsed)
+        if retry_after > 0:
+            raise HTTPException(status_code=429, detail=f"Новий код можна надіслати через {retry_after} с")
+    issue_email_verification_code(session, current_user)
+    return email_verification_status(session, current_user)
 
 
 @app.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_authenticated_user),
     session: Session = Depends(get_session),
 ):
     del current_user
@@ -570,7 +878,7 @@ def logout(
 
 
 @app.get("/users/me", response_model=UserRead)
-def get_me(current_user: User = Depends(get_current_user)):
+def get_me(current_user: User = Depends(get_authenticated_user)):
     return current_user
 
 
@@ -598,6 +906,74 @@ def update_user(
     return current_user
 
 
+@app.get("/users/{user_id}/customization", response_model=UserCustomizationRead)
+def get_user_customization(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    require_same_user(user_id, current_user)
+    customization = ensure_user_customization(session, current_user.id)
+    selection = ensure_user_cosmetic_selection(session, current_user.id)
+    achievements = sync_user_achievements(session, current_user.id)
+    reset_locked_cosmetics(customization, selection, unlocked_reward_keys(achievements))
+    session.add(customization)
+    session.add(selection)
+    session.commit()
+    session.refresh(customization)
+    session.refresh(selection)
+    return customization_read(customization, selection)
+
+
+@app.get("/users/{user_id}/achievements", response_model=AchievementSummaryRead)
+def get_user_achievements(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    require_same_user(user_id, current_user)
+    summary = sync_user_achievements(session, current_user.id)
+    session.commit()
+    return summary
+
+
+@app.put("/users/{user_id}/customization", response_model=UserCustomizationRead)
+def update_user_customization(
+    user_id: int,
+    data: UserCustomizationUpdate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    require_same_user(user_id, current_user)
+    achievements = sync_user_achievements(session, current_user.id)
+    unlocked_rewards = unlocked_reward_keys(achievements)
+    for field, value in (
+        ("header_style", data.header_style),
+        ("bottom_style", data.bottom_style),
+        ("background_style", data.background_style),
+    ):
+        requirement = required_achievement(field, value)
+        if requirement and (field, value) not in unlocked_rewards:
+            raise HTTPException(
+                status_code=409,
+                detail=f"«{requirement.reward_name}» відкривається за досягнення «{requirement.title}»",
+            )
+
+    customization = ensure_user_customization(session, current_user.id)
+    selection = ensure_user_cosmetic_selection(session, current_user.id)
+    customization.orca_skin = data.orca_skin
+    customization.header_style = data.header_style
+    customization.bottom_style = data.bottom_style
+    customization.theme = data.theme
+    selection.background_style = data.background_style
+    session.add(customization)
+    session.add(selection)
+    session.commit()
+    session.refresh(customization)
+    session.refresh(selection)
+    return customization_read(customization, selection)
+
+
 # -------------------- Locations and friends --------------------
 
 @app.put("/users/{user_id}/location", response_model=FriendLocationRead)
@@ -619,10 +995,17 @@ def update_user_location(
     session.add(location)
     session.commit()
     session.refresh(location)
+    customization = session.get(UserCustomization, current_user.id)
+    selection = session.get(UserCosmeticSelection, current_user.id)
     return FriendLocationRead(
         user_id=current_user.id, name=current_user.name, photo_url=current_user.photo_url,
         latitude=location.latitude, longitude=location.longitude, accuracy=location.accuracy,
         updated_at=location.updated_at, age_seconds=0, presence="online",
+        orca_skin=customization.orca_skin if customization else "default",
+        header_style=customization.header_style if customization else "default",
+        bottom_style=customization.bottom_style if customization else "default",
+        background_style=selection.background_style if selection else "default",
+        theme=customization.theme if customization else "dark",
     )
 
 
@@ -715,6 +1098,9 @@ def accept_friend_request(
     friendship.status = "accepted"
     session.add(friendship)
     session.commit()
+    sync_user_achievements(session, friendship.requester_id)
+    sync_user_achievements(session, friendship.addressee_id)
+    session.commit()
     session.refresh(friendship)
     friend = get_user_or_404(friendship.requester_id, session)
     return FriendConnectionRead(
@@ -774,6 +1160,8 @@ def _location_read(
     location: UserLocation,
     now: datetime,
     friendship_status: str | None = None,
+    customization: UserCustomization | None = None,
+    selection: UserCosmeticSelection | None = None,
 ) -> FriendLocationRead | None:
     age = max(0, int((now - normalized_utc(location.updated_at)).total_seconds()))
     if age > LIVE_LOCATION_MAX_AGE_SECONDS:
@@ -784,6 +1172,11 @@ def _location_read(
         friendship_status=friendship_status,
         latitude=location.latitude, longitude=location.longitude, accuracy=location.accuracy,
         updated_at=location.updated_at, age_seconds=age, presence=presence,
+        orca_skin=customization.orca_skin if customization else "default",
+        header_style=customization.header_style if customization else "default",
+        bottom_style=customization.bottom_style if customization else "default",
+        background_style=selection.background_style if selection else "default",
+        theme=customization.theme if customization else "dark",
     )
 
 
@@ -796,13 +1189,18 @@ def list_friend_locations(user_id: int, current_user: User = Depends(get_current
         return []
     users = {item.id: item for item in session.exec(select(User).where(User.id.in_(ids))).all()}
     locations = {item.user_id: item for item in session.exec(select(UserLocation).where(UserLocation.user_id.in_(ids))).all()}
+    customizations = {item.user_id: item for item in session.exec(select(UserCustomization).where(UserCustomization.user_id.in_(ids))).all()}
+    selections = {item.user_id: item for item in session.exec(select(UserCosmeticSelection).where(UserCosmeticSelection.user_id.in_(ids))).all()}
     now = utc_now()
     result = []
     for friend_id in ids:
         friend, location = users.get(friend_id), locations.get(friend_id)
         if not friend or not location or not friend.location_sharing_enabled or friend.location_visibility not in {"friends", "everyone"}:
             continue
-        item = _location_read(friend, location, now, friendship_status="accepted")
+        item = _location_read(
+            friend, location, now, friendship_status="accepted",
+            customization=customizations.get(friend_id), selection=selections.get(friend_id),
+        )
         if item:
             result.append(item)
     return result
@@ -824,31 +1222,29 @@ def list_visible_locations(user_id: int, current_user: User = Depends(get_curren
         for row in friendships if row.status == "accepted"
     }
 
-    # Event presence is temporary and is valid only when the viewer has a fresh
-    # location and both users belong to the same active event geofence.
-    viewer_location = session.get(UserLocation, current_user.id)
-    viewer_activity_ids: set[int] = set()
-    if location_is_fresh(viewer_location, now):
-        active_memberships = session.exec(
-            select(EventMember)
-            .join(Activity, Activity.id == EventMember.activity_id)
-            .where((EventMember.user_id == current_user.id) & active_activity_condition(now))
-        ).all()
-        viewer_activity_ids = {row.activity_id for row in active_memberships}
+    # Event presence is visible for events joined by the viewer and for public
+    # events. The attendee still has to be physically near that event and have
+    # fresh, explicitly shared location data.
+    active_memberships = session.exec(
+        select(EventMember)
+        .join(Activity, Activity.id == EventMember.activity_id)
+        .where((EventMember.user_id == current_user.id) & active_activity_condition(now))
+    ).all()
+    viewer_activity_ids = {row.activity_id for row in active_memberships}
+    public_activity_ids = set(session.exec(
+        select(Activity.id).where((Activity.visibility == "public") & active_activity_condition(now))
+    ).all())
+    event_visible_activity_ids = viewer_activity_ids | public_activity_ids
 
     event_locations = {
         row.activity_id: row
-        for row in session.exec(select(EventLocation).where(EventLocation.activity_id.in_(viewer_activity_ids))).all()
-    } if viewer_activity_ids else {}
-    viewer_near_activity_ids = {
-        activity_id for activity_id, event_location in event_locations.items()
-        if event_geofence_match(viewer_location, event_location)
-    }
+        for row in session.exec(select(EventLocation).where(EventLocation.activity_id.in_(event_visible_activity_ids))).all()
+    } if event_visible_activity_ids else {}
 
     memberships_by_user: dict[int, set[int]] = defaultdict(set)
     event_user_ids: set[int] = set()
-    if viewer_near_activity_ids:
-        for row in session.exec(select(EventMember).where(EventMember.activity_id.in_(viewer_near_activity_ids))).all():
+    if event_locations:
+        for row in session.exec(select(EventMember).where(EventMember.activity_id.in_(set(event_locations)))).all():
             if row.user_id != current_user.id:
                 memberships_by_user[row.user_id].add(row.activity_id)
                 event_user_ids.add(row.user_id)
@@ -864,6 +1260,14 @@ def list_visible_locations(user_id: int, current_user: User = Depends(get_curren
     locations = {
         row.user_id: row
         for row in session.exec(select(UserLocation).where(UserLocation.user_id.in_(user_ids))).all()
+    } if user_ids else {}
+    customizations = {
+        row.user_id: row
+        for row in session.exec(select(UserCustomization).where(UserCustomization.user_id.in_(user_ids))).all()
+    } if user_ids else {}
+    selections = {
+        row.user_id: row
+        for row in session.exec(select(UserCosmeticSelection).where(UserCosmeticSelection.user_id.in_(user_ids))).all()
     } if user_ids else {}
 
     result = []
@@ -887,6 +1291,8 @@ def list_visible_locations(user_id: int, current_user: User = Depends(get_curren
             now,
             friendship_status=friendships_by_user.get(candidate.id).status
             if candidate.id in friendships_by_user else None,
+            customization=customizations.get(candidate.id),
+            selection=selections.get(candidate.id),
         )
         if item:
             result.append(item)
@@ -903,6 +1309,14 @@ def create_activity(
 ):
     if data.user_id is not None:
         require_same_user(data.user_id, current_user)
+    owned_event_count = len(session.exec(
+        select(EventOwner).where(EventOwner.user_id == current_user.id)
+    ).all())
+    if owned_event_count >= MAX_EVENTS_PER_USER:
+        raise HTTPException(
+            status_code=409,
+            detail="Один користувач може мати не більше 3 подій. Видаліть одну з подій, щоб створити нову.",
+        )
     activity = Activity(
         title=data.title,
         description=data.description,
@@ -910,6 +1324,7 @@ def create_activity(
         image_url=store_image(data.image_url, "events"),
         capacity=data.capacity,
         pin_type=data.pin_type if data.pin_type in PIN_TYPES else "default",
+        tags_json=json.dumps(data.tags, ensure_ascii=False),
         start_time=data.start_time,
         end_time=data.end_time,
         code=generate_unique_code(session, Activity, "code", 6, string.ascii_uppercase + string.digits),
@@ -924,6 +1339,8 @@ def create_activity(
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="Не вдалося створити подію")
+    sync_user_achievements(session, current_user.id)
+    session.commit()
     session.refresh(activity)
     return activity_to_read(activity, session)
 
@@ -972,6 +1389,99 @@ def get_activity(code: str, current_user: User = Depends(get_current_user), sess
     return activity_to_read(activity, session)
 
 
+@app.patch("/activities/{code}", response_model=ActivityRead)
+def update_activity(
+    code: str,
+    data: ActivityUpdate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    activity = get_activity_or_404(code, session)
+    owner = session.get(EventOwner, activity.id)
+    if owner is None or owner.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Лише організатор може редагувати подію")
+
+    updates = data.model_dump(exclude_unset=True)
+    if not updates:
+        return activity_to_read(activity, session)
+
+    if "title" in updates and updates["title"] is None:
+        raise HTTPException(status_code=422, detail="Назва події є обов’язковою")
+    if "start_time" in updates and updates["start_time"] is None:
+        raise HTTPException(status_code=422, detail="Час початку є обов’язковим")
+
+    next_start = updates.get("start_time", activity.start_time)
+    next_end = updates.get("end_time", activity.end_time)
+    if next_start is None:
+        raise HTTPException(status_code=422, detail="Час початку є обов’язковим")
+    if next_end is not None and next_end <= next_start:
+        raise HTTPException(status_code=422, detail="Час завершення має бути пізніше часу початку")
+
+    if "capacity" in updates and updates["capacity"] is not None:
+        member_count = len(session.exec(
+            select(EventMember.id).where(EventMember.activity_id == activity.id)
+        ).all())
+        if updates["capacity"] < member_count:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Місткість не може бути меншою за поточну кількість учасників ({member_count})",
+            )
+
+    if "visibility" in updates:
+        updates["visibility"] = normalize_event_visibility(updates["visibility"])
+    if "pin_type" in updates and updates["pin_type"] not in PIN_TYPES:
+        raise HTTPException(status_code=422, detail="Невідомий тип позначки події")
+
+    if "tags" in updates:
+        activity.tags_json = json.dumps(updates.pop("tags"), ensure_ascii=False)
+
+    previous_image = activity.image_url
+    stored_image = previous_image
+    if "image_url" in updates:
+        stored_image = store_image(updates.pop("image_url"), "events")
+
+    latitude = updates.pop("latitude", None)
+    longitude = updates.pop("longitude", None)
+    location_was_requested = latitude is not None or longitude is not None
+    location = session.get(EventLocation, activity.id)
+    if location_was_requested:
+        if location is None and (latitude is None or longitude is None):
+            raise HTTPException(status_code=422, detail="Потрібні обидві координати події")
+        if location is None:
+            location = EventLocation(activity_id=activity.id, latitude=latitude, longitude=longitude)
+        else:
+            if latitude is not None:
+                location.latitude = latitude
+            if longitude is not None:
+                location.longitude = longitude
+        session.add(location)
+
+    for field, value in updates.items():
+        setattr(activity, field, "" if field == "description" and value is None else value)
+    activity.image_url = stored_image
+    session.add(activity)
+    notify_event_members(
+        session,
+        activity.id,
+        current_user.id,
+        "event_updated",
+        f"Подію «{activity.title}» було оновлено організатором.",
+        activity.code,
+        activity.title,
+    )
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if stored_image != previous_image:
+            remove_stored_image(stored_image, "events")
+        raise HTTPException(status_code=409, detail="Не вдалося зберегти зміни події")
+    if stored_image != previous_image:
+        remove_stored_image(previous_image, "events")
+    session.refresh(activity)
+    return activity_to_read(activity, session)
+
+
 @app.post("/activities/{code}/join", response_model=ActivityRead, status_code=201)
 def join_activity(
     code: str,
@@ -1005,6 +1515,11 @@ def join_activity(
     session.commit()
     if result.rowcount == 0 and not is_event_member(activity.id, current_user.id, session):
         raise HTTPException(status_code=409, detail="У події вже немає вільних місць")
+    owner = session.get(EventOwner, activity.id)
+    sync_user_achievements(session, current_user.id)
+    if owner and owner.user_id != current_user.id:
+        sync_user_achievements(session, owner.user_id)
+    session.commit()
     return activity_to_read(activity, session)
 
 
@@ -1043,8 +1558,32 @@ def delete_activity(
     if owner is None or owner.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Лише організатор може видалити подію")
     image_url = activity.image_url
+    notify_event_members(
+        session,
+        activity.id,
+        current_user.id,
+        "event_deleted",
+        f"Подію «{activity.title}» було видалено організатором.",
+        activity.code,
+        activity.title,
+    )
+    dependent_rows = [
+        *session.exec(select(Participant).where(Participant.activity_id == activity.id)).all(),
+        *session.exec(select(EventMember).where(EventMember.activity_id == activity.id)).all(),
+    ]
+    location = session.get(EventLocation, activity.id)
+    if location is not None:
+        dependent_rows.append(location)
+    dependent_rows.append(owner)
+    for row in dependent_rows:
+        session.delete(row)
+    session.flush()
     session.delete(activity)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Не вдалося видалити пов’язані дані події")
     remove_stored_image(image_url, "events")
     return None
 
@@ -1057,15 +1596,60 @@ def list_participants(code: str, current_user: User = Depends(get_current_user),
     memberships = session.exec(select(EventMember).where(EventMember.activity_id == activity.id).order_by(EventMember.joined_at)).all()
     user_ids = [row.user_id for row in memberships]
     users = {row.id: row for row in session.exec(select(User).where(User.id.in_(user_ids))).all()} if user_ids else {}
+    friendships = session.exec(select(Friendship).where(
+        or_(Friendship.requester_id == current_user.id, Friendship.addressee_id == current_user.id)
+    )).all()
+    friendships_by_user = {
+        row.addressee_id if row.requester_id == current_user.id else row.requester_id: row
+        for row in friendships
+    }
     return [
         EventParticipantRead(
             user_id=member.user_id, name=users[member.user_id].name,
             photo_url=users[member.user_id].photo_url,
             is_host=bool(owner and owner.user_id == member.user_id),
             joined_at=member.joined_at,
+            friend_code=users[member.user_id].friend_code if member.user_id != current_user.id else None,
+            friendship_id=friendships_by_user[member.user_id].id if member.user_id in friendships_by_user else None,
+            friendship_status=friendships_by_user[member.user_id].status if member.user_id in friendships_by_user else None,
+            friendship_direction=(
+                "outgoing" if friendships_by_user[member.user_id].requester_id == current_user.id else "incoming"
+            ) if member.user_id in friendships_by_user else None,
         )
         for member in memberships if member.user_id in users
     ]
+
+
+@app.get("/users/{user_id}/notifications", response_model=list[UserNotificationRead])
+def list_user_notifications(
+    user_id: int,
+    unread_only: bool = True,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    require_same_user(user_id, current_user)
+    statement = select(UserNotification).where(UserNotification.user_id == current_user.id)
+    if unread_only:
+        statement = statement.where(UserNotification.read_at.is_(None))
+    return session.exec(statement.order_by(UserNotification.created_at.desc()).limit(30)).all()
+
+
+@app.post("/users/{user_id}/notifications/{notification_id}/read", status_code=204)
+def mark_user_notification_read(
+    user_id: int,
+    notification_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    require_same_user(user_id, current_user)
+    notification = session.get(UserNotification, notification_id)
+    if notification is None or notification.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
+    if notification.read_at is None:
+        notification.read_at = utc_now()
+        session.add(notification)
+        session.commit()
+    return None
 
 
 @app.get("/users/{user_id}/activities", response_model=list[ActivityRead])
@@ -1094,32 +1678,6 @@ def list_friend_activities(user_id: int, current_user: User = Depends(get_curren
         (Activity.id.in_(ids)) & (Activity.visibility.in_(["public", "friends"])) & active_activity_condition()
     ).order_by(Activity.start_time, Activity.created_at.desc())).all() if ids else []
     return serialize_activities(activities, session)
-
-
-# Checkpoint creation now matches the frontend API. Only the event owner may edit.
-@app.get("/activities/{code}/checkpoints", response_model=list[CheckpointRead])
-def list_checkpoints(code: str, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    activity = get_activity_or_404(code, session)
-    ensure_can_view_activity(activity, current_user, session)
-    return session.exec(select(Checkpoint).where(Checkpoint.activity_id == activity.id).order_by(Checkpoint.order_index, Checkpoint.id)).all()
-
-
-@app.post("/activities/{code}/checkpoints", response_model=CheckpointRead, status_code=201)
-def create_checkpoint(
-    code: str,
-    data: CheckpointCreate,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
-):
-    activity = get_activity_or_404(code, session)
-    owner = session.get(EventOwner, activity.id)
-    if owner is None or owner.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Лише організатор може додавати точки")
-    checkpoint = Checkpoint(activity_id=activity.id, **data.model_dump())
-    session.add(checkpoint)
-    session.commit()
-    session.refresh(checkpoint)
-    return checkpoint
 
 
 # Serve a production Vite build from the same process. API routes above remain

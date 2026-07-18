@@ -1,0 +1,17 @@
+{
+  "name": "Bambini",
+  "short_name": "Bambini",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080a0c",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "/bambini-logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

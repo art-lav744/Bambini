@@ -1,13 +1,15 @@
-import { EVENT_TAG_OPTIONS, normalizeEventTags, toggleEventTag } from "../eventTags.js";
+import { EVENT_TAG_OPTIONS, eventTagLabel, normalizeEventTags, toggleEventTag } from "../eventTags.js";
+import { useI18n } from "../i18n.js";
 
 export default function EventTagPicker({ value, onChange, max = 5 }) {
+  const { language, tr } = useI18n();
   const selected = normalizeEventTags(value, max);
   const atLimit = selected.length >= max;
 
   return (
-    <section className="event-tag-picker" aria-label="Теги події">
+    <section className="event-tag-picker" aria-label={tr("Теги події", "Event tags")}>
       <div className="event-tag-picker__heading">
-        <strong>Теги</strong>
+        <strong>{tr("Теги", "Tags")}</strong>
         <span>{selected.length}/{max}</span>
       </div>
       <div className="event-tag-picker__options">
@@ -22,12 +24,12 @@ export default function EventTagPicker({ value, onChange, max = 5 }) {
               disabled={!active && atLimit}
               onClick={() => onChange(toggleEventTag(selected, tag.value, max))}
             >
-              {tag.label}
+              {eventTagLabel(tag.value, language)}
             </button>
           );
         })}
       </div>
-      <span className="field-hint">Оберіть до {max} тегів</span>
+      <span className="field-hint">{tr(`Оберіть до ${max} тегів`, `Choose up to ${max} tags`)}</span>
     </section>
   );
 }

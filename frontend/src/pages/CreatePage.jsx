@@ -7,8 +7,10 @@ import EventTagPicker from "../components/EventTagPicker.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 import { defaultEventEndTime, defaultEventStartTime, localDateTimeToUtc } from "../eventFormat.js";
 import EventPinPreview, { EVENT_PINS } from "../components/EventPinPreview.jsx";
+import { localizeApiMessage, useI18n } from "../i18n.js";
 
 export default function CreatePage() {
+  const { language, tr } = useI18n();
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [form, setForm] = useState({
@@ -28,8 +30,8 @@ export default function CreatePage() {
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
-    ensureCurrentUser().then(setUser).catch((err) => setError(err.message));
-  }, []);
+    ensureCurrentUser().then(setUser).catch((err) => setError(localizeApiMessage(err.message, language)));
+  }, [language]);
 
   function updateField(event) {
     const { name, value } = event.target;
@@ -39,16 +41,16 @@ export default function CreatePage() {
   function handleImageFile(file) {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      setError("Оберіть файл зображення.");
+      setError(tr("Оберіть файл зображення.", "Choose an image file."));
       return;
     }
     if (file.size > 2 * 1024 * 1024) {
-      setError("Зображення має бути не більше 2 МБ.");
+      setError(tr("Зображення має бути не більше 2 МБ.", "The image must be no larger than 2 MB."));
       return;
     }
     const reader = new FileReader();
     reader.onload = () => setForm((current) => ({ ...current, image_url: String(reader.result || "") }));
-    reader.onerror = () => setError("Не вдалося прочитати зображення.");
+    reader.onerror = () => setError(tr("Не вдалося прочитати зображення.", "Could not read the image."));
     reader.readAsDataURL(file);
   }
 
@@ -62,11 +64,11 @@ export default function CreatePage() {
     setError("");
 
     if (!user) {
-      setError("Профіль ще завантажується.");
+      setError(tr("Профіль ще завантажується.", "Your profile is still loading."));
       return;
     }
     if (!location) {
-      setError("Виберіть одну точку події на карті.");
+      setError(tr("Виберіть одну точку події на карті.", "Choose one event location on the map."));
       return;
     }
 
@@ -82,7 +84,7 @@ export default function CreatePage() {
       });
       navigate(`/room/${activity.code}`);
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
     } finally {
       setLoading(false);
     }
@@ -90,17 +92,17 @@ export default function CreatePage() {
 
   return (
     <main className="form-page event-form-page">
-      <Link className="back-link" to="/events"><AppIcon name="arrow-left" /><span>Назад до подій</span></Link>
+      <Link className="back-link" to="/events"><AppIcon name="arrow-left" /><span>{tr("Назад до подій", "Back to events")}</span></Link>
       <section className="card form-card event-create-card">
-        <div className="eyebrow">Нова подія</div>
-        <h1>Створити подію</h1>
+        <div className="eyebrow">{tr("Нова подія", "New event")}</div>
+        <h1>{tr("Створити подію", "Create event")}</h1>
         <p className="muted">
-          Організатор: <strong>{user?.name || "завантаження…"}</strong>. Подія має одну точку на карті.
+          {tr("Організатор:", "Host:")} <strong>{user?.name || tr("завантаження…", "loading…")}</strong>. {tr("Подія має одну точку на карті.", "The event has one location on the map.")}
         </p>
 
         <form className="form" onSubmit={handleSubmit}>
           <label>
-            Назва події
+            {tr("Назва події", "Event name")}
             <input
               name="title"
               value={form.title}
@@ -111,7 +113,7 @@ export default function CreatePage() {
           </label>
 
           <label>
-            Опис
+            {tr("Опис", "Description")}
             <textarea
               name="description"
               value={form.description}
@@ -126,7 +128,7 @@ export default function CreatePage() {
           />
 
           <label>
-            Час початку
+            {tr("Час початку", "Start time")}
             <input
               type="datetime-local"
               name="start_time"
@@ -137,7 +139,7 @@ export default function CreatePage() {
           </label>
 
           <label>
-            Час завершення
+            {tr("Час завершення", "End time")}
             <input
               type="datetime-local"
               name="end_time"
@@ -150,8 +152,8 @@ export default function CreatePage() {
 
           <section className="event-form-section">
             <div className="event-form-section__heading">
-              <strong>Кількість учасників</strong>
-              <span>Необов’язково</span>
+              <strong>{tr("Кількість учасників", "Number of participants")}</strong>
+              <span>{tr("Необов’язково", "Optional")}</span>
             </div>
             <label className="capacity-toggle">
               <input
@@ -159,18 +161,18 @@ export default function CreatePage() {
                 checked={form.capacity !== null}
                 onChange={(event) => setCapacity(event.target.checked ? 8 : "")}
               />
-              Обмежити кількість місць
+              {tr("Обмежити кількість місць", "Limit available places")}
             </label>
             {form.capacity !== null && (
               <div className="capacity-control">
-                <div className="capacity-control__value">{form.capacity} ос.</div>
+                <div className="capacity-control__value">{form.capacity} {tr("ос.", "people")}</div>
                 <input
                   type="range"
                   min="1"
                   max="50"
                   value={form.capacity}
                   onChange={(event) => setCapacity(event.target.value)}
-                  aria-label="Кількість учасників від 1 до 50"
+                  aria-label={tr("Кількість учасників від 1 до 50", "Number of participants from 1 to 50")}
                 />
               </div>
             )}
@@ -178,8 +180,8 @@ export default function CreatePage() {
 
           <section className="event-form-section">
             <div className="event-form-section__heading">
-              <strong>Зображення події</strong>
-              <span>Необов’язково</span>
+              <strong>{tr("Зображення події", "Event image")}</strong>
+              <span>{tr("Необов’язково", "Optional")}</span>
             </div>
             <label
               className={`event-upload-zone${isDragging ? " is-dragging" : ""}`}
@@ -190,65 +192,65 @@ export default function CreatePage() {
             >
               <input type="file" accept="image/*" onChange={(event) => handleImageFile(event.target.files[0])} />
               <span className="event-upload-zone__icon">＋</span>
-              <strong>Перетягніть фото сюди</strong>
-              <span>або натисніть, щоб вибрати файл до 2 МБ</span>
+              <strong>{tr("Перетягніть фото сюди", "Drag a photo here")}</strong>
+              <span>{tr("або натисніть, щоб вибрати файл до 2 МБ", "or click to choose a file up to 2 MB")}</span>
             </label>
             {form.image_url && (
               <div className="event-image-preview event-image-preview--editable">
-                <img src={form.image_url} alt="Попередній перегляд події" />
-                <button type="button" onClick={() => setForm((current) => ({ ...current, image_url: "" }))}>Видалити фото</button>
+                <img src={form.image_url} alt={tr("Попередній перегляд події", "Event preview")} />
+                <button type="button" onClick={() => setForm((current) => ({ ...current, image_url: "" }))}>{tr("Видалити фото", "Remove photo")}</button>
               </div>
             )}
           </section>
 
           <section className="event-form-section">
             <div className="event-form-section__heading">
-              <strong>Позначка на карті</strong>
-              <span>Оберіть стиль</span>
+              <strong>{tr("Позначка на карті", "Map pin")}</strong>
+              <span>{tr("Оберіть стиль", "Choose a style")}</span>
             </div>
-            <div className="event-pin-grid" role="radiogroup" aria-label="Стиль позначки події">
+            <div className="event-pin-grid" role="radiogroup" aria-label={tr("Стиль позначки події", "Event pin style")}>
               {EVENT_PINS.map((pin) => (
                 <button key={pin.id} type="button" role="radio" aria-checked={form.pin_type === pin.id} className={`event-pin-option${form.pin_type === pin.id ? " is-active" : ""}`} onClick={() => setForm((current) => ({ ...current, pin_type: pin.id }))}>
                   <EventPinPreview type={pin.id} capacity={form.capacity} current={1} imageUrl={form.image_url} />
-                  <span>{pin.label}</span>
+                  <span>{language === "en" ? pin.labelEn : pin.label}</span>
                 </button>
               ))}
             </div>
           </section>
 
           <fieldset className="event-privacy-field">
-            <legend>Доступ до події</legend>
+            <legend>{tr("Доступ до події", "Event access")}</legend>
             <div className="event-privacy-options">
               <button
                 type="button"
                 className={`event-privacy-option${form.visibility === "public" ? " is-active" : ""}`}
                 onClick={() => setForm((current) => ({ ...current, visibility: "public" }))}
               >
-                <strong>Публічна</strong>
-                <span>Видима всім користувачам. Приєднатися може будь-хто.</span>
+                <strong>{tr("Публічна", "Public")}</strong>
+                <span>{tr("Видима всім користувачам. Приєднатися може будь-хто.", "Visible to all users. Anyone can join.")}</span>
               </button>
               <button
                 type="button"
                 className={`event-privacy-option${form.visibility === "friends" ? " is-active" : ""}`}
                 onClick={() => setForm((current) => ({ ...current, visibility: "friends" }))}
               >
-                <strong>Лише друзі</strong>
-                <span>Видима друзям організатора. Приєднатися можуть лише друзі.</span>
+                <strong>{tr("Лише друзі", "Friends only")}</strong>
+                <span>{tr("Видима друзям організатора. Приєднатися можуть лише друзі.", "Visible to the host's friends. Only friends can join.")}</span>
               </button>
               <button
                 type="button"
                 className={`event-privacy-option${form.visibility === "private" ? " is-active" : ""}`}
                 onClick={() => setForm((current) => ({ ...current, visibility: "private" }))}
               >
-                <strong>Приватна</strong>
-                <span>Не показується у списках. Приєднання лише за кодом.</span>
+                <strong>{tr("Приватна", "Private")}</strong>
+                <span>{tr("Не показується у списках. Приєднання лише за кодом.", "Hidden from lists. Join using the event code only.")}</span>
               </button>
             </div>
           </fieldset>
 
           <div className="event-location-field">
-            <span className="event-location-field__label">Точка події</span>
-            <p className="muted">Натисніть один раз на карту або використайте свою позицію.</p>
+            <span className="event-location-field__label">{tr("Точка події", "Event location")}</span>
+            <p className="muted">{tr("Натисніть один раз на карту або використайте свою позицію.", "Click once on the map or use your current position.")}</p>
             <EventLocationPicker value={location} onChange={setLocation} />
             {location && (
               <small className="event-coordinates">
@@ -260,7 +262,7 @@ export default function CreatePage() {
           {error && <p className="error">{error}</p>}
 
           <button className="button primary" disabled={loading || !user}>
-            {loading ? "Створення..." : "Створити подію"}
+            {loading ? tr("Створення...", "Creating...") : tr("Створити подію", "Create event")}
           </button>
         </form>
       </section>

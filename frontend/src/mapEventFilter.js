@@ -1,7 +1,7 @@
 export const MAP_EVENT_FILTER_OPTIONS = [
-  { value: "none", label: "Немає" },
-  { value: "mine", label: "Мої" },
-  { value: "all", label: "Усі" },
+  { value: "none", label: "Немає", labelEn: "None" },
+  { value: "mine", label: "Мої", labelEn: "Mine" },
+  { value: "all", label: "Усі", labelEn: "All" },
 ];
 
 export function normalizeMapEventFilter(value) {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { LANGUAGE_OPTIONS, localizeApiMessage, useI18n } from "../i18n.js";
 import {
   clearCurrentUser,
   getPendingVerificationEmail,
@@ -36,6 +37,7 @@ function loadGoogleScript() {
 }
 
 export default function LoginPage({ onAuthenticated }) {
+  const { language, setLanguage, tr } = useI18n();
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -90,7 +92,7 @@ export default function LoginPage({ onAuthenticated }) {
                 onAuthenticated(result.user);
               }
             } catch (err) {
-              setError(err.message || "Не вдалося увійти через Google.");
+              setError(localizeApiMessage(err.message, language) || tr("Не вдалося увійти через Google.", "Could not sign in with Google."));
               setLoading(false);
             }
           },
@@ -104,13 +106,14 @@ export default function LoginPage({ onAuthenticated }) {
             size: "large",
             text: "signin_with",
             shape: "pill",
+            locale: language,
           });
         }
         setLoading(false);
       })
       .catch(() => {
         if (active) {
-          setError("Не вдалося завантажити Google Sign-In. Перевірте VITE_GOOGLE_CLIENT_ID.");
+          setError(tr("Не вдалося завантажити Google Sign-In. Перевірте VITE_GOOGLE_CLIENT_ID.", "Could not load Google Sign-In. Check VITE_GOOGLE_CLIENT_ID."));
           setLoading(false);
         }
       });
@@ -118,7 +121,7 @@ export default function LoginPage({ onAuthenticated }) {
     return () => {
       active = false;
     };
-  }, [onAuthenticated]);
+  }, [language, onAuthenticated, tr]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -141,12 +144,12 @@ export default function LoginPage({ onAuthenticated }) {
         setMode("verify");
         setVerificationCode("");
         setResendCooldown(60);
-        setMessage(`Ми надіслали код на ${form.email.trim().toLowerCase()}`);
+        setMessage(tr(`Ми надіслали код на ${form.email.trim().toLowerCase()}`, `We sent a code to ${form.email.trim().toLowerCase()}`));
       } else {
         onAuthenticated(result.user);
       }
     } catch (err) {
-      setError(err.message || "Не вдалося завершити авторизацію.");
+      setError(localizeApiMessage(err.message, language) || tr("Не вдалося завершити авторизацію.", "Could not complete authentication."));
     } finally {
       setSubmitting(false);
     }
@@ -161,7 +164,7 @@ export default function LoginPage({ onAuthenticated }) {
       const user = await verifyPendingEmail(verificationCode);
       onAuthenticated(user);
     } catch (err) {
-      setError(err.message || "Не вдалося підтвердити email.");
+      setError(localizeApiMessage(err.message, language) || tr("Не вдалося підтвердити email.", "Could not verify your email."));
     } finally {
       setSubmitting(false);
     }
@@ -174,9 +177,9 @@ export default function LoginPage({ onAuthenticated }) {
     try {
       const status = await resendPendingEmailVerification();
       setResendCooldown(status.resend_after_seconds || 60);
-      setMessage("Новий код надіслано.");
+      setMessage(tr("Новий код надіслано.", "A new code has been sent."));
     } catch (err) {
-      setError(err.message || "Не вдалося надіслати новий код.");
+      setError(localizeApiMessage(err.message, language) || tr("Не вдалося надіслати новий код.", "Could not send a new code."));
     } finally {
       setSubmitting(false);
     }
@@ -198,7 +201,14 @@ export default function LoginPage({ onAuthenticated }) {
         <div className="profile-hero">
           <div>
             <div className="eyebrow">Bambini</div>
-            <h1>{mode === "verify" ? "Підтвердьте email" : "Увійдіть, щоб продовжити"}</h1>
+            <h1>{mode === "verify" ? tr("Підтвердьте email", "Verify your email") : tr("Увійдіть, щоб продовжити", "Sign in to continue")}</h1>
+          </div>
+          <div className="auth-language-switch" role="radiogroup" aria-label={tr("Мова інтерфейсу", "Interface language")}>
+            {LANGUAGE_OPTIONS.map((option) => (
+              <button key={option.value} type="button" role="radio" aria-checked={language === option.value}
+                className={`small-action${language === option.value ? " is-active" : ""}`}
+                onClick={() => setLanguage(option.value)}>{option.shortLabel}</button>
+            ))}
           </div>
         </div>
 
@@ -206,11 +216,11 @@ export default function LoginPage({ onAuthenticated }) {
           {mode === "verify" ? (
             <div className="email-verification">
               <p className="muted">
-                Введіть шестизначний код, надісланий на <strong>{form.email || getPendingVerificationEmail()}</strong>.
+                {tr("Введіть шестизначний код, надісланий на", "Enter the six-digit code sent to")} <strong>{form.email || getPendingVerificationEmail()}</strong>.
               </p>
               <form className="form" onSubmit={handleVerification}>
                 <label>
-                  Код підтвердження
+                  {tr("Код підтвердження", "Verification code")}
                   <input
                     className="email-verification__code"
                     value={verificationCode}
@@ -225,15 +235,15 @@ export default function LoginPage({ onAuthenticated }) {
                   />
                 </label>
                 <button className="button primary" type="submit" disabled={submitting || verificationCode.length !== 6}>
-                  {submitting ? "Перевірка…" : "Підтвердити email"}
+                  {submitting ? tr("Перевірка…", "Verifying…") : tr("Підтвердити email", "Verify email")}
                 </button>
               </form>
               <div className="email-verification__actions">
                 <button className="button secondary" type="button" disabled={submitting || resendCooldown > 0} onClick={handleResend}>
-                  {resendCooldown > 0 ? `Надіслати знову через ${resendCooldown} с` : "Надіслати код знову"}
+                  {resendCooldown > 0 ? tr(`Надіслати знову через ${resendCooldown} с`, `Resend in ${resendCooldown}s`) : tr("Надіслати код знову", "Resend code")}
                 </button>
                 <button className="button secondary" type="button" disabled={submitting} onClick={useAnotherAccount}>
-                  Інший акаунт
+                  {tr("Інший акаунт", "Use another account")}
                 </button>
               </div>
             </div>
@@ -245,7 +255,7 @@ export default function LoginPage({ onAuthenticated }) {
               style={{ flex: 1 }}
               onClick={() => setMode("login")}
             >
-              Увійти
+              {tr("Увійти", "Sign in")}
             </button>
             <button
               type="button"
@@ -253,14 +263,14 @@ export default function LoginPage({ onAuthenticated }) {
               style={{ flex: 1 }}
               onClick={() => setMode("register")}
             >
-              Реєстрація
+              {tr("Реєстрація", "Register")}
             </button>
           </div>
 
           <form className="form" onSubmit={handleSubmit}>
             {mode === "register" && (
               <label>
-                Ім'я
+                {tr("Ім'я", "Name")}
                 <input
                   value={form.name}
                   onChange={(event) => setForm({ ...form, name: event.target.value })}
@@ -279,7 +289,7 @@ export default function LoginPage({ onAuthenticated }) {
               />
             </label>
             <label>
-              Пароль
+              {tr("Пароль", "Password")}
               <input
                 type="password"
                 value={form.password}
@@ -289,14 +299,14 @@ export default function LoginPage({ onAuthenticated }) {
               />
             </label>
             <button className="button primary" type="submit" disabled={submitting}>
-              {submitting ? "Завантаження..." : mode === "register" ? "Створити акаунт" : "Увійти"}
+              {submitting ? tr("Завантаження...", "Loading...") : mode === "register" ? tr("Створити акаунт", "Create account") : tr("Увійти", "Sign in")}
             </button>
           </form>
 
           {(import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim() && (
             <div id="google-signin" style={{ marginTop: 24, display: "flex", justifyContent: "center" }} />
           )}
-          {loading && <p className="muted" style={{ marginTop: 16 }}>Підключення Google…</p>}
+          {loading && <p className="muted" style={{ marginTop: 16 }}>{tr("Підключення Google…", "Connecting to Google…")}</p>}
           </>}
           {message && <p className="success-message auth-message">{message}</p>}
           {error && <p className="error-message auth-message">{error}</p>}

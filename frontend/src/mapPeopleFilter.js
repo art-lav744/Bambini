@@ -1,7 +1,7 @@
 export const MAP_PEOPLE_FILTER_OPTIONS = [
-  { value: "none", label: "Нікого" },
-  { value: "friends", label: "Друзі" },
-  { value: "all", label: "Усі" },
+  { value: "none", label: "Нікого", labelEn: "None" },
+  { value: "friends", label: "Друзі", labelEn: "Friends" },
+  { value: "all", label: "Усі", labelEn: "All" },
 ];
 
 export function normalizeMapPeopleFilter(value) {

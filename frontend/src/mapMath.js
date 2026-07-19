@@ -50,17 +50,19 @@ export function eventsWithDistance(events, userLocation) {
     .map(({ event, distanceMeters }) => ({ event, distanceMeters }));
 }
 
-export function formatEventDistance(distanceMeters) {
+import { getLanguage, localeForLanguage, translate } from "./i18n.js";
+
+export function formatEventDistance(distanceMeters, language = getLanguage()) {
   const distance = Number(distanceMeters);
   if (!Number.isFinite(distance) || distance < 0) return "";
   if (distance < 1000) {
     const roundedMeters = distance < 100 ? Math.round(distance) : Math.round(distance / 10) * 10;
-    return `${roundedMeters} м`;
+    return `${roundedMeters} ${translate("м", "m", language)}`;
   }
   const kilometers = distance / 1000;
-  if (kilometers >= 10) return `${Math.round(kilometers)} км`;
+  if (kilometers >= 10) return `${Math.round(kilometers)} ${translate("км", "km", language)}`;
   const roundedKilometers = Math.round(kilometers * 10) / 10;
-  return `${String(roundedKilometers).replace(".", ",")} км`;
+  return `${new Intl.NumberFormat(localeForLanguage(language), { maximumFractionDigits: 1 }).format(roundedKilometers)} ${translate("км", "km", language)}`;
 }
 
 export function isWithinEventGeofence(eventCoords, userCoords, accuracy = 0) {

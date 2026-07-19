@@ -1,16 +1,18 @@
 import { NavLink } from "react-router-dom";
 import AppIcon from "./AppIcon.jsx";
+import { useI18n } from "../i18n.js";
 
 const items = [
-  { to: "/profile", label: "Профіль", icon: "profile" },
-  { to: "/map", label: "Карта", icon: "map" },
-  { to: "/friends", label: "Друзі", icon: "friends" },
-  { to: "/events", label: "Події", icon: "events" },
+  { to: "/profile", label: "Профіль", labelEn: "Profile", icon: "profile" },
+  { to: "/map", label: "Карта", labelEn: "Map", icon: "map" },
+  { to: "/friends", label: "Друзі", labelEn: "Friends", icon: "friends" },
+  { to: "/events", label: "Події", labelEn: "Events", icon: "events" },
 ];
 
 export default function BottomNav() {
+  const { language, tr } = useI18n();
   return (
-    <nav className="bottom-nav" aria-label="Основна навігація">
+    <nav className="bottom-nav" aria-label={tr("Основна навігація", "Main navigation")}>
       <div className="bottom-nav__inner">
         {items.map((item) => (
           <NavLink
@@ -23,7 +25,7 @@ export default function BottomNav() {
             <span className="bottom-nav__icon">
               <AppIcon name={item.icon} />
             </span>
-            <span>{item.label}</span>
+            <span>{language === "en" ? item.labelEn : item.label}</span>
           </NavLink>
         ))}
       </div>

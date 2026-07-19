@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
+import { useI18n } from "../i18n.js";
 
 const DEFAULT_CENTER = [24.7111, 48.9226];
 const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
@@ -50,6 +51,7 @@ function hidePlaceLabels(map) {
 }
 
 export default function EventLocationPicker({ value, onChange }) {
+  const { tr } = useI18n();
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
@@ -111,11 +113,11 @@ export default function EventLocationPicker({ value, onChange }) {
   function useCurrentLocation() {
     setError("");
     if (!window.isSecureContext) {
-      setError("Геолокація працює лише через HTTPS або localhost.");
+      setError(tr("Геолокація працює лише через HTTPS або localhost.", "Geolocation works only over HTTPS or localhost."));
       return;
     }
     if (!navigator.geolocation) {
-      setError("Цей браузер не підтримує геолокацію.");
+      setError(tr("Цей браузер не підтримує геолокацію.", "This browser does not support geolocation."));
       return;
     }
     setLocating(true);
@@ -135,9 +137,9 @@ export default function EventLocationPicker({ value, onChange }) {
       },
       (geoError) => {
         setLocating(false);
-        if (geoError.code === 1) setError("Доступ до геолокації заборонено в браузері.");
-        else if (geoError.code === 2) setError("Телефон не зміг визначити позицію.");
-        else setError("Час очікування геолокації вичерпано.");
+        if (geoError.code === 1) setError(tr("Доступ до геолокації заборонено в браузері.", "Location access is denied in the browser."));
+        else if (geoError.code === 2) setError(tr("Телефон не зміг визначити позицію.", "Your phone could not determine its position."));
+        else setError(tr("Час очікування геолокації вичерпано.", "Location request timed out."));
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
@@ -147,7 +149,7 @@ export default function EventLocationPicker({ value, onChange }) {
     <div className="event-location-picker-wrap">
       <div ref={containerRef} className="event-location-picker" />
       <button className="event-location-use-me" type="button" onClick={useCurrentLocation} disabled={locating}>
-        {locating ? "Визначення..." : "Використати мою позицію"}
+        {locating ? tr("Визначення...", "Locating...") : tr("Використати мою позицію", "Use my location")}
       </button>
       {error && <p className="event-location-error" role="alert">{error}</p>}
     </div>

@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { api } from "./api.js";
 import AppIcon from "./components/AppIcon.jsx";
 import { applyCustomization, DEFAULT_CUSTOMIZATION } from "./customization.js";
+import { useI18n } from "./i18n.js";
 import { ensureCurrentUser, hasStoredSession, subscribeToAuthChanges } from "./userSession.js";
 
 const CreatePage = lazy(() => import("./pages/CreatePage.jsx"));
@@ -21,6 +22,7 @@ function Protected({ authenticated, children }) {
 }
 
 function OrientationGuard() {
+  const { tr } = useI18n();
   useEffect(() => {
     if (window.matchMedia?.("(display-mode: standalone)").matches) {
       window.screen?.orientation?.lock?.("portrait").catch(() => {});
@@ -30,13 +32,14 @@ function OrientationGuard() {
   return (
     <aside className="orientation-guard" role="status" aria-live="polite">
       <AppIcon name="rotate-phone" />
-      <strong>Поверніть телефон вертикально</strong>
-      <span>Bambini працює у портретній орієнтації.</span>
+      <strong>{tr("Поверніть телефон вертикально", "Turn your phone vertically")}</strong>
+      <span>{tr("Bambini працює у портретній орієнтації.", "Bambini works in portrait orientation.")}</span>
     </aside>
   );
 }
 
 export default function App() {
+  const { tr } = useI18n();
   const [isAuthenticated, setIsAuthenticated] = useState(hasStoredSession);
   const navigate = useNavigate();
 
@@ -73,7 +76,7 @@ export default function App() {
   return (
     <>
       <OrientationGuard />
-      <Suspense fallback={<main className="loading-screen">Завантаження…</main>}>
+      <Suspense fallback={<main className="loading-screen">{tr("Завантаження…", "Loading…")}</main>}>
         <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/map" replace /> : <LoginPage onAuthenticated={handleAuthenticated} />} />
         <Route path="/" element={<Navigate to={isAuthenticated ? "/map" : "/login"} replace />} />

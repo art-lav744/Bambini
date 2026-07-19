@@ -1,8 +1,11 @@
-export function formatEventDateTime(value, endValue = null) {
-  if (!value) return "Час не вказано";
+import { getLanguage, localeForLanguage, translate } from "./i18n.js";
+
+export function formatEventDateTime(value, endValue = null, language = getLanguage()) {
+  if (!value) return translate("Час не вказано", "Time not specified", language);
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Час не вказано";
-  const formatter = new Intl.DateTimeFormat("uk-UA", {
+  if (Number.isNaN(date.getTime())) return translate("Час не вказано", "Time not specified", language);
+  const locale = localeForLanguage(language);
+  const formatter = new Intl.DateTimeFormat(locale, {
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -11,7 +14,7 @@ export function formatEventDateTime(value, endValue = null) {
   });
   if (!endValue) return formatter.format(date);
   const end = new Date(endValue);
-  return Number.isNaN(end.getTime()) ? formatter.format(date) : `${formatter.format(date)} — ${new Intl.DateTimeFormat("uk-UA", { hour: "2-digit", minute: "2-digit" }).format(end)}`;
+  return Number.isNaN(end.getTime()) ? formatter.format(date) : `${formatter.format(date)} — ${new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(end)}`;
 }
 
 function toLocalInput(date) {
@@ -35,8 +38,8 @@ export function defaultEventEndTime(startValue = defaultEventStartTime()) {
   return toLocalInput(new Date(start.getTime() + 2 * 60 * 60 * 1000));
 }
 
-export function localDateTimeToUtc(value) {
+export function localDateTimeToUtc(value, language = getLanguage()) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) throw new Error("Некоректний час події");
+  if (Number.isNaN(date.getTime())) throw new Error(translate("Некоректний час події", "Invalid event time", language));
   return date.toISOString();
 }

@@ -191,6 +191,131 @@ const EVENT_TAG_LABELS = new Map([
   ...EVENT_TAG_OPTIONS.map((tag) => [tag.value, tag.label]),
 ]);
 
+const ENGLISH_EVENT_TAG_LABELS = new Map([
+  ["music", "Music"],
+  ["cinema", "Cinema"],
+  ["party", "Party"],
+  ["family", "Family"],
+  ["kids", "Kids"],
+  ["sport", "General sport"],
+  ["volleyball", "Volleyball (beach / indoor)"],
+  ["tennis", "Tennis"],
+  ["padel-squash", "Padel and squash"],
+  ["running", "Running and marathons"],
+  ["cycling", "Cycling rides"],
+  ["skate-roller", "Skateboarding, rollerblading and scooters"],
+  ["swimming-pool", "Swimming and pools"],
+  ["water-sports", "SUP, kayaking and kitesurfing"],
+  ["martial-arts", "Martial arts and boxing"],
+  ["gymnastics-acro", "Gymnastics and acrobatics"],
+  ["extreme-sports", "Extreme sports"],
+  ["winter-sports", "Skiing, snowboarding and skating"],
+  ["chess", "Chess and checkers"],
+  ["billiards-bowling", "Billiards and bowling"],
+  ["walk", "City walk"],
+  ["picnic", "Picnic and barbecue"],
+  ["hiking", "Hiking and trekking"],
+  ["excursion", "Tours and excursions"],
+  ["fishing-hunting", "Fishing and hunting"],
+  ["stargazing", "Astronomy and stargazing"],
+  ["birdwatching", "Birdwatching"],
+  ["music-concert", "Concerts and live music"],
+  ["music-fest", "Music festivals"],
+  ["opera-ballet", "Opera and ballet"],
+  ["theater", "Theatre and performance"],
+  ["cinema-openair", "Cinema and open-air screenings"],
+  ["standup-comedy", "Stand-up and comedy shows"],
+  ["karaoke", "Karaoke parties"],
+  ["dj-set", "DJ sets and electronic music"],
+  ["jam-session", "Jam sessions"],
+  ["musical-instrument-lessons", "Music workshops"],
+  ["art-exhibition", "Exhibitions and galleries"],
+  ["museum", "Museums and history"],
+  ["literature-club", "Book clubs and presentations"],
+  ["poetry-night", "Poetry nights"],
+  ["painting-drawing", "Painting and drawing"],
+  ["sculpture-pottery", "Pottery and sculpting"],
+  ["photography", "Photo walks and exhibitions"],
+  ["handicraft", "Knitting, embroidery and handmade"],
+  ["modelling", "Scale modelling"],
+  ["dance-bachata", "Social dancing"],
+  ["dance-modern", "Modern dance and hip-hop"],
+  ["board-games", "Board games"],
+  ["rpg-dnd", "Role-playing games (D&D, Mafia)"],
+  ["pub-quiz", "Pub quizzes and trivia"],
+  ["gaming-pc-console", "Video games and LAN tournaments"],
+  ["esports", "Esports events"],
+  ["anime-cosplay", "Anime and cosplay"],
+  ["comic-con", "Geek festivals and comics"],
+  ["coffee", "Coffee and cupping"],
+  ["tea-ceremony", "Tea and tea ceremonies"],
+  ["wine-tasting", "Wine and cheese tastings"],
+  ["craft-beer", "Craft beer and pub crawls"],
+  ["cocktail-party", "Cocktail evenings"],
+  ["food-court", "Street food festivals"],
+  ["restaurant-opening", "Restaurant openings and dinners"],
+  ["cooking-masterclass", "Cooking workshops"],
+  ["vegan-vegetarian", "Vegan and vegetarian events"],
+  ["party-home", "House parties"],
+  ["night-club", "Clubs, raves and techno"],
+  ["bar-hopping", "Bar crawl"],
+  ["pool-party", "Pool parties"],
+  ["networking", "Networking and meeting people"],
+  ["speed-dating", "Speed dating"],
+  ["business-conference", "Conferences and forums"],
+  ["startup-pitch", "Startup pitches and hackathons"],
+  ["it-meetup", "IT meetups and development"],
+  ["marketing-pr", "Marketing, PR and advertising"],
+  ["crypto-web3", "Crypto, NFT and Web3 meetups"],
+  ["investing-finance", "Investing and financial literacy"],
+  ["e-commerce", "E-commerce and marketplaces"],
+  ["lecture", "Lectures and public speaking"],
+  ["seminar-training", "Seminars and practical training"],
+  ["language-club", "Language speaking clubs"],
+  ["science-pop", "Popular science lectures"],
+  ["tedx-format", "TEDx-style events"],
+  ["oratory-skills", "Public speaking and debates"],
+  ["family-day", "Family and community days"],
+  ["kids-entertainment", "Children's entertainment"],
+  ["kids-development", "Children's learning clubs"],
+  ["parenting-club", "Parenting clubs"],
+  ["baby-fairs", "Children's fairs and exhibitions"],
+  ["fitness-group", "Group fitness and CrossFit"],
+  ["yoga-stretching", "Yoga, stretching and Pilates"],
+  ["meditation-sound-healing", "Meditation and sound healing"],
+  ["psychology-group", "Psychology groups and therapy"],
+  ["beauty-day", "Beauty and makeup workshops"],
+  ["healthy-lifestyle", "Healthy lifestyle and nutrition"],
+  ["spa-sauna", "Sauna, SPA and relaxation"],
+  ["charity-auction", "Charity auctions and fundraisers"],
+  ["volunteer-work", "Volunteering"],
+  ["eco-cleanup", "Eco cleanups"],
+  ["animal-shelter-help", "Animal shelter support"],
+  ["blood-donation", "Blood donation"],
+  ["urbanism-community", "Urbanism and community development"],
+  ["garage-sale", "Garage sales"],
+  ["flea-market", "Flea markets and antiques"],
+  ["pop-up-market", "Craft markets and local brands"],
+  ["fashion-show", "Fashion and design"],
+  ["book-fair", "Book fairs"],
+  ["auto-show", "Car shows and tuning"],
+  ["moto-meetup", "Motorcycle meetups"],
+  ["karting-race", "Karting and amateur racing"],
+  ["test-drive", "Test drives"],
+  ["pets-walk", "Group dog walks"],
+  ["pet-exhibition", "Pet exhibitions"],
+  ["pet-friendly-event", "Pet-friendly events"],
+]);
+
+function fallbackEnglishTagLabel(value) {
+  return String(value || "")
+    .split("-")
+    .filter(Boolean)
+    .map((word) => ({ pc: "PC", dj: "DJ", it: "IT", spa: "SPA", golf: "Golf" }[word] || word))
+    .join(" ")
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+
 export function normalizeEventTags(value, max = 5) {
   const result = [];
   const seen = new Set();
@@ -210,7 +335,8 @@ export function toggleEventTag(value, tag, max = 5) {
   return [...selected, tag];
 }
 
-export function eventTagLabel(tag) {
+export function eventTagLabel(tag, language = "uk") {
+  if (language === "en") return ENGLISH_EVENT_TAG_LABELS.get(tag) || fallbackEnglishTagLabel(tag);
   return EVENT_TAG_LABELS.get(tag) || tag;
 }
 

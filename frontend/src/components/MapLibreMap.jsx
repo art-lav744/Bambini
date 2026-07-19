@@ -5,6 +5,7 @@ import AppIcon from "./AppIcon.jsx";
 import { resolveMascot } from "../customization.js";
 import { iconSvgMarkup } from "../icons.js";
 import { getEventOrbitPatternOffsets, isWithinEventGeofence, limitEventOrbitUsers, prioritizeEventOrbitUsers } from "../mapMath.js";
+import { localeForLanguage, localizeApiMessage, translate, useI18n } from "../i18n.js";
 
 const DEFAULT_CENTER = [24.7111, 48.9226];
 const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
@@ -200,9 +201,14 @@ function initials(name = "?") {
   return name.trim().slice(0, 2).toUpperCase() || "?";
 }
 
-function mascotPreviewHtml(customization) {
+function mascotPreviewHtml(customization, language) {
   const { skin, header, bottom, background, layers } = resolveMascot(customization);
-  const label = `Сконструйований образ: ${skin.name}, ${header.name}, ${bottom.name}, фон ${background.name}`;
+  const optionName = (option) => language === "en" ? option.nameEn || option.name : option.name;
+  const label = translate(
+    `Сконструйований образ: ${optionName(skin)}, ${optionName(header)}, ${optionName(bottom)}, фон ${optionName(background)}`,
+    `Customized mascot: ${optionName(skin)}, ${optionName(header)}, ${optionName(bottom)}, background ${optionName(background)}`,
+    language,
+  );
   const images = layers.map((layer) =>
     `<img class="map-person-card__mascot-layer" src="${escapeHtml(layer.asset)}" alt="">`
   ).join("");
@@ -214,11 +220,11 @@ function decoratePopupCloseButton(popup) {
   if (closeButton) closeButton.innerHTML = iconSvgMarkup("close");
 }
 
-function formatEventDateTime(value) {
-  if (!value) return "Час не вказано";
+function formatEventDateTime(value, language) {
+  if (!value) return translate("Час не вказано", "Time not specified", language);
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Час не вказано";
-  return new Intl.DateTimeFormat("uk-UA", {
+  if (Number.isNaN(date.getTime())) return translate("Час не вказано", "Time not specified", language);
+  return new Intl.DateTimeFormat(localeForLanguage(language), {
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -228,10 +234,10 @@ function formatEventDateTime(value) {
 }
 
 
-function eventVisibilityLabel(visibility) {
-  if (visibility === "friends") return "Лише друзі";
-  if (visibility === "private") return "Приватна";
-  return "Публічна";
+function eventVisibilityLabel(visibility, language) {
+  if (visibility === "friends") return translate("Лише друзі", "Friends only", language);
+  if (visibility === "private") return translate("Приватна", "Private", language);
+  return translate("Публічна", "Public", language);
 }
 
 function markerScaleForZoom(zoom) {
@@ -303,17 +309,17 @@ function eventSignature(event) {
   ].join("|");
 }
 
-function createEventAttendeeBadge(entry) {
+function createEventAttendeeBadge(entry, language) {
   const badge = document.createElement("span");
   badge.className = [
     "event-map-marker__attendee",
     entry.isCurrent ? "is-current" : "",
   ].filter(Boolean).join(" ");
   badge.title = entry.isOverflow
-    ? `Ще ${entry.overflowCount} учасників`
+    ? translate(`Ще ${entry.overflowCount} учасників`, `${entry.overflowCount} more participants`, language)
     : entry.isCurrent
-      ? "Ви"
-      : entry.user?.name || "Учасник";
+      ? translate("Ви", "You", language)
+      : entry.user?.name || translate("Учасник", "Participant", language);
 
   if (entry.isOverflow) {
     badge.classList.add("is-overflow");
@@ -335,18 +341,18 @@ function createEventAttendeeBadge(entry) {
   return badge;
 }
 
-function syncEventOrbit(eventEntry, matchingUsers, offsets, userScale) {
+function syncEventOrbit(eventEntry, matchingUsers, offsets, userScale, language) {
   const orbitElement = eventEntry.orbitElement;
   if (!orbitElement) return;
 
-  const signature = matchingUsers
+  const signature = `${language}|${matchingUsers
     .map((entry) => entry.isOverflow
       ? `overflow:${entry.overflowCount}`
       : `${entry.userId}:${entry.user?.photo_url || ""}:${entry.user?.name || ""}:${entry.isCurrent}`)
-    .join("|");
+    .join("|")}`;
 
   if (eventEntry.orbitSignature !== signature) {
-    orbitElement.replaceChildren(...matchingUsers.map(createEventAttendeeBadge));
+    orbitElement.replaceChildren(...matchingUsers.map((entry) => createEventAttendeeBadge(entry, language)));
     eventEntry.orbitSignature = signature;
   }
 
@@ -359,14 +365,14 @@ function syncEventOrbit(eventEntry, matchingUsers, offsets, userScale) {
   });
 }
 
-function layoutEventUserGroups(eventEntries, userEntries, zoom) {
+function layoutEventUserGroups(eventEntries, userEntries, zoom, language) {
   const usersHiddenByAnEvent = new Set();
   const orbitRadius = eventOrbitRadiusForZoom(zoom);
   const userScale = markerScaleForZoom(zoom);
 
   for (const eventEntry of eventEntries) {
     if (eventEntry.isVisible === false) {
-      syncEventOrbit(eventEntry, [], [], userScale);
+      syncEventOrbit(eventEntry, [], [], userScale, language);
       continue;
     }
 
@@ -388,7 +394,8 @@ function layoutEventUserGroups(eventEntries, userEntries, zoom) {
       eventEntry,
       visibleBadges,
       getEventOrbitPatternOffsets(visibleBadges.length, orbitRadius),
-      userScale
+      userScale,
+      language,
     );
     usersAtEvent.forEach((entry) => {
       entry.element?.classList.add("is-event-member-hidden");
@@ -405,7 +412,7 @@ function eventImageHtml(event) {
 }
 
 
-function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
+function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby, language) {
   const element = document.createElement("button");
   element.type = "button";
   element.className = "event-map-marker";
@@ -442,14 +449,14 @@ function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
       ${eventImageHtml(event)}
       <div class="map-selection-card__body">
         <div class="map-selection-card__badges">
-          <span>${escapeHtml(eventVisibilityLabel(event.visibility))}</span>
-          <span>${escapeHtml(formatEventDateTime(event.start_time))}</span>
-          ${event.capacity ? `<span>${event.participant_count || 0}/${event.capacity} учасників</span>` : ""}
+          <span>${escapeHtml(eventVisibilityLabel(event.visibility, language))}</span>
+          <span>${escapeHtml(formatEventDateTime(event.start_time, language))}</span>
+          ${event.capacity ? `<span>${event.participant_count || 0}/${event.capacity} ${translate("учасників", "participants", language)}</span>` : ""}
         </div>
         <h3>${escapeHtml(event.title)}</h3>
-        <p>${escapeHtml(event.description || "Без опису")}</p>
-        <button class="map-selection-card__action" type="button" data-open-event="${escapeHtml(event.code)}">Відкрити подію ${iconSvgMarkup("arrow-right")}</button>
-        ${canJoinNearby ? `<button class="map-selection-card__action" type="button" data-join-event="${escapeHtml(event.code)}">Приєднатися поруч ${iconSvgMarkup("plus")}</button>` : ""}
+        <p>${escapeHtml(event.description || translate("Без опису", "No description", language))}</p>
+        <button class="map-selection-card__action" type="button" data-open-event="${escapeHtml(event.code)}">${translate("Відкрити подію", "Open event", language)} ${iconSvgMarkup("arrow-right")}</button>
+        ${canJoinNearby ? `<button class="map-selection-card__action" type="button" data-join-event="${escapeHtml(event.code)}">${translate("Приєднатися поруч", "Join nearby", language)} ${iconSvgMarkup("plus")}</button>` : ""}
       </div>
     </article>`
   );
@@ -467,13 +474,13 @@ function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
     if (joinAction) {
       joinAction.onclick = async () => {
         joinAction.disabled = true;
-        joinAction.textContent = "Приєднання...";
+        joinAction.textContent = translate("Приєднання...", "Joining...", language);
         try {
           await onJoinEvent?.(event);
-          joinAction.textContent = "Приєднано";
+          joinAction.textContent = translate("Приєднано", "Joined", language);
         } catch (error) {
           joinAction.disabled = false;
-          joinAction.textContent = error?.message || "Не вдалося приєднатися";
+          joinAction.textContent = localizeApiMessage(error?.message, language) || translate("Не вдалося приєднатися", "Could not join", language);
         }
       };
     }
@@ -492,7 +499,7 @@ function createEventMarker(event, onOpenEvent, onJoinEvent, canJoinNearby) {
   };
 }
 
-function createUserMarkerElement(user, isCurrent) {
+function createUserMarkerElement(user, isCurrent, language) {
   const element = document.createElement("button");
   element.type = "button";
   element.className = [
@@ -502,7 +509,7 @@ function createUserMarkerElement(user, isCurrent) {
   ]
     .filter(Boolean)
     .join(" ");
-  element.setAttribute("aria-label", isCurrent ? "Моя позиція" : user.name);
+  element.setAttribute("aria-label", isCurrent ? translate("Моя позиція", "My location", language) : user.name);
 
   const avatar = document.createElement("span");
   avatar.className = "map-user-marker__avatar";
@@ -527,7 +534,7 @@ function createUserMarkerElement(user, isCurrent) {
   pulseTwo.className = "map-user-marker__pulse pulse-two";
   const label = document.createElement("span");
   label.className = "map-user-marker__label";
-  label.textContent = isCurrent ? "Ви" : user.name;
+  label.textContent = isCurrent ? translate("Ви", "You", language) : user.name;
 
   const visual = document.createElement("span");
   visual.className = "map-user-marker__visual";
@@ -565,6 +572,7 @@ export default function MapLibreMap({
   autoCenterOnUser = false,
   className = "",
 }) {
+  const { language, tr } = useI18n();
   const navigate = useNavigate();
   const openEvent = useCallback((code) => navigate(`/room/${code}`), [navigate]);
   const containerRef = useRef(null);
@@ -594,8 +602,8 @@ export default function MapLibreMap({
     userEntries.forEach((entry) => {
       entry.element?.classList.remove("is-event-member-hidden");
     });
-    layoutEventUserGroups(eventEntries, userEntries, zoom);
-  }, []);
+    layoutEventUserGroups(eventEntries, userEntries, zoom, language);
+  }, [language]);
 
   const scheduleMarkerLayout = useCallback(() => {
     if (layoutFrameRef.current !== null) {
@@ -723,7 +731,7 @@ export default function MapLibreMap({
       nextEvents.set(key, {
         event,
         canJoinNearby,
-        signature: `${eventSignature(event)}|nearby:${canJoinNearby}`,
+        signature: `${eventSignature(event)}|nearby:${canJoinNearby}|language:${language}`,
       });
     }
 
@@ -741,7 +749,7 @@ export default function MapLibreMap({
       if (!entry || entry.signature !== signature) {
         entry?.destroy?.();
         entry?.marker.remove();
-        const created = createEventMarker(event, openEvent, onJoinEvent, canJoinNearby);
+        const created = createEventMarker(event, openEvent, onJoinEvent, canJoinNearby, language);
         if (!created) continue;
 
         created.marker.addTo(map);
@@ -757,7 +765,7 @@ export default function MapLibreMap({
 
     eventMarkersRef.current = Array.from(eventMarkersByKeyRef.current.values());
     scheduleMarkerLayout();
-  }, [currentLocation, currentUser, eventPins, mapReady, onJoinEvent, openEvent, scheduleMarkerLayout]);
+  }, [currentLocation, currentUser, eventPins, language, mapReady, onJoinEvent, openEvent, scheduleMarkerLayout]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -794,28 +802,28 @@ export default function MapLibreMap({
     }
 
     for (const item of visibleUsers) {
-      const signature = userSignature(item.user, item.isCurrent);
+      const signature = `${userSignature(item.user, item.isCurrent)}|language:${language}`;
       let entry = userMarkersRef.current.get(item.key);
 
       if (!entry || entry.signature !== signature) {
         entry?.destroy?.();
         entry?.marker.remove();
-        const element = createUserMarkerElement(item.user, item.isCurrent);
-        const displayName = item.isCurrent ? "Ви" : item.user.name;
+        const element = createUserMarkerElement(item.user, item.isCurrent, language);
+        const displayName = item.isCurrent ? tr("Ви", "You") : item.user.name;
         const statusText = item.isCurrent
-          ? "Ваша поточна позиція"
+          ? tr("Ваша поточна позиція", "Your current position")
           : item.user.presence === "online"
-            ? "На карті зараз"
-            : `Оновлено ${item.user.age_seconds || 0} с тому`;
-        const mascotHtml = mascotPreviewHtml(item.user);
+            ? tr("На карті зараз", "On the map now")
+            : tr(`Оновлено ${item.user.age_seconds || 0} с тому`, `Updated ${item.user.age_seconds || 0}s ago`);
+        const mascotHtml = mascotPreviewHtml(item.user, language);
         const friendActionHtml = item.isCurrent
           ? ""
           : item.user.friendship_status === "accepted"
-            ? `<span class="map-person-card__relationship">У друзях</span>`
+            ? `<span class="map-person-card__relationship">${tr("У друзях", "Friends")}</span>`
             : item.user.friendship_status === "pending"
-              ? `<button class="map-selection-card__action" type="button" disabled>Запит уже надіслано</button>`
+              ? `<button class="map-selection-card__action" type="button" disabled>${tr("Запит уже надіслано", "Request already sent")}</button>`
               : onAddFriend && item.user.friend_code
-                ? `<button class="map-selection-card__action" type="button" data-add-friend>Додати в друзі ${iconSvgMarkup("plus")}</button>`
+                ? `<button class="map-selection-card__action" type="button" data-add-friend>${tr("Додати в друзі", "Add friend")} ${iconSvgMarkup("plus")}</button>`
                 : "";
         const popup = new maplibregl.Popup({
           offset: 34,
@@ -827,7 +835,7 @@ export default function MapLibreMap({
             <div class="map-person-card__content">
               <div class="map-person-card__status"><span class="is-${escapeHtml(item.user.presence || "online")}"></span>${escapeHtml(statusText)}</div>
               <h3>${escapeHtml(displayName)}</h3>
-              <p>${item.isCurrent ? "Це ви на карті" : "Користувач ділиться своєю актуальною геолокацією"}</p>
+              <p>${item.isCurrent ? tr("Це ви на карті", "This is you on the map") : tr("Користувач ділиться своєю актуальною геолокацією", "This user is sharing their current location")}</p>
               ${friendActionHtml}
             </div>
           </article>`
@@ -838,13 +846,13 @@ export default function MapLibreMap({
           if (!action) return;
           action.onclick = async () => {
             action.disabled = true;
-            action.textContent = "Надсилання...";
+            action.textContent = tr("Надсилання...", "Sending...");
             try {
               await onAddFriend?.(item.user);
-              action.textContent = "Запит надіслано";
+              action.textContent = tr("Запит надіслано", "Request sent");
             } catch (error) {
               action.disabled = false;
-              action.textContent = error?.message || "Не вдалося додати";
+              action.textContent = localizeApiMessage(error?.message, language) || tr("Не вдалося додати", "Could not add friend");
             }
           };
         };
@@ -884,7 +892,7 @@ export default function MapLibreMap({
     }
 
     scheduleMarkerLayout();
-  }, [currentLocation, currentUser, friendLocations, mapReady, onAddFriend, scheduleMarkerLayout]);
+  }, [currentLocation, currentUser, friendLocations, language, mapReady, onAddFriend, scheduleMarkerLayout, tr]);
 
   function locateUser() {
     setLocationError("");
@@ -907,7 +915,7 @@ export default function MapLibreMap({
     if (!window.isSecureContext) return;
 
     if (!navigator.geolocation) {
-      setLocationError("Геолокація не підтримується цим браузером.");
+      setLocationError(tr("Геолокація не підтримується цим браузером.", "This browser does not support geolocation."));
       return;
     }
 
@@ -922,7 +930,7 @@ export default function MapLibreMap({
         onLocationFound?.(location, true);
         map.flyTo({ center: [location.longitude, location.latitude], zoom: Math.min(MAX_ZOOM, 15), duration: 900 });
       },
-      () => setLocationError("Не вдалося отримати геолокацію. Перевірте дозвіл браузера."),
+      () => setLocationError(tr("Не вдалося отримати геолокацію. Перевірте дозвіл браузера.", "Could not get your location. Check the browser permission.")),
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }
@@ -936,8 +944,8 @@ export default function MapLibreMap({
           className="map-fab map-fab--location"
           type="button"
           onClick={locateUser}
-          aria-label="Показати мою геолокацію"
-          title="Моя геолокація"
+          aria-label={tr("Показати мою геолокацію", "Show my location")}
+          title={tr("Моя геолокація", "My location")}
         >
           <AppIcon name="locate" />
         </button>

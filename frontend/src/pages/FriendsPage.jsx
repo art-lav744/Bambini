@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import AppIcon from "../components/AppIcon.jsx";
 import BottomNav from "../components/BottomNav.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import { localizeApiMessage, useI18n } from "../i18n.js";
 import { ensureCurrentUser } from "../userSession.js";
 
 const FRIENDS_POLL_INTERVAL_MS = 10000;
@@ -17,6 +18,7 @@ function Avatar({ user }) {
 }
 
 export default function FriendsPage() {
+  const { language, tr } = useI18n();
   const [user, setUser] = useState(null);
   const [friends, setFriends] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -36,9 +38,9 @@ export default function FriendsPage() {
     if (liveLocations.status === "fulfilled") setLocations(liveLocations.value);
     if (!quiet) {
       const failure = [connections, liveLocations].find((result) => result.status === "rejected");
-      setError(failure ? failure.reason?.message || "Не вдалося оновити дані друзів" : "");
+      setError(failure ? localizeApiMessage(failure.reason?.message, language) || tr("Не вдалося оновити дані друзів", "Could not update friends") : "");
     }
-  }, []);
+  }, [language, tr]);
 
   useEffect(() => {
     let active = true;
@@ -53,13 +55,13 @@ export default function FriendsPage() {
           if (document.visibilityState === "visible") loadData(profile, true);
         }, FRIENDS_POLL_INTERVAL_MS);
       })
-      .catch((err) => active && setError(err.message));
+      .catch((err) => active && setError(localizeApiMessage(err.message, language)));
 
     return () => {
       active = false;
       if (intervalId) window.clearInterval(intervalId);
     };
-  }, [loadData]);
+  }, [language, loadData]);
 
   async function addFriend(event) {
     event.preventDefault();
@@ -73,10 +75,10 @@ export default function FriendsPage() {
     try {
       await api.sendFriendRequest(user.id, code);
       setFriendCode("");
-      setMessage("Запит у друзі відправлено. На іншому пристрої він з’явиться автоматично.");
+      setMessage(tr("Запит у друзі відправлено. На іншому пристрої він з’явиться автоматично.", "Friend request sent. It will appear automatically on the other device."));
       await loadData(user);
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
     } finally {
       setSending(false);
     }
@@ -87,24 +89,24 @@ export default function FriendsPage() {
     setError("");
     try {
       await api.acceptFriendRequest(user.id, friendshipId);
-      setMessage("Запит прийнято");
+      setMessage(tr("Запит прийнято", "Request accepted"));
       await loadData(user);
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
     }
   }
 
-  function removeFriend(friend, actionLabel = "Видалити") {
+  function removeFriend(friend, actionLabel = tr("Видалити", "Remove")) {
     if (!user || deletingId) return;
     const isAcceptedFriend = friend.status === "accepted";
-    const targetLabel = isAcceptedFriend ? "друга" : "запит";
+    const targetLabel = isAcceptedFriend ? tr("друга", "friend") : tr("запит", "request");
     setConfirmation({
       friend,
       actionLabel,
       title: `${actionLabel} ${targetLabel}?`,
       message: isAcceptedFriend
-        ? `Видалити ${friend.name} із друзів?`
-        : `${actionLabel} запит від ${friend.name}?`,
+        ? tr(`Видалити ${friend.name} із друзів?`, `Remove ${friend.name} from friends?`)
+        : tr(`${actionLabel} запит від ${friend.name}?`, `${actionLabel} request from ${friend.name}?`),
     });
   }
 
@@ -117,10 +119,10 @@ export default function FriendsPage() {
     setDeletingId(friend.friendship_id);
     try {
       await api.deleteFriend(user.id, friend.friendship_id);
-      setMessage(`Дію для ${friend.name} виконано`);
+      setMessage(tr(`Дію для ${friend.name} виконано`, `Action completed for ${friend.name}`));
       await loadData(user);
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
     } finally {
       setDeletingId(null);
     }
@@ -138,40 +140,40 @@ export default function FriendsPage() {
   return (
     <main className="main-tab-page">
       <div className="tab-page__content">
-        <div className="eyebrow">Команда</div>
-        <h1>Друзі</h1>
+        <div className="eyebrow">{tr("Команда", "Community")}</div>
+        <h1>{tr("Друзі", "Friends")}</h1>
         <p className="muted">
-          Додавайте людей за публічним кодом друга.
+          {tr("Додавайте людей за публічним кодом друга.", "Add people using their public friend code.")}
         </p>
 
         <form className="friend-add-form" onSubmit={addFriend}>
           <input
             value={friendCode}
             onChange={(event) => setFriendCode(event.target.value.toUpperCase())}
-            placeholder="Код друга, напр. A8J4K2QZ"
+            placeholder={tr("Код друга, напр. A8J4K2QZ", "Friend code, e.g. A8J4K2QZ")}
             minLength="8"
             maxLength="8"
             required
           />
           <button className="button primary" type="submit" disabled={sending}>
-            {sending ? "Надсилання..." : "Додати"}
+            {sending ? tr("Надсилання...", "Sending...") : tr("Додати", "Add")}
           </button>
         </form>
 
         {incoming.length > 0 && (
           <section className="friend-section">
-            <h2>Вхідні запити</h2>
+            <h2>{tr("Вхідні запити", "Incoming requests")}</h2>
             <div className="friend-list">
               {incoming.map((friend) => (
                 <article className="friend-row" key={friend.friendship_id}>
                   <Avatar user={friend} />
                   <div className="friend-row__main">
                     <strong>{friend.name}</strong>
-                    <span>Хоче додати вас у друзі</span>
+                    <span>{tr("Хоче додати вас у друзі", "Wants to add you as a friend")}</span>
                   </div>
                   <div className="friend-row__actions">
-                    <button className="small-action" type="button" onClick={() => accept(friend.friendship_id)}>Прийняти</button>
-                    <button className="small-action small-action--danger" type="button" onClick={() => removeFriend(friend, "Відхилити")}>Відхилити</button>
+                    <button className="small-action" type="button" onClick={() => accept(friend.friendship_id)}>{tr("Прийняти", "Accept")}</button>
+                    <button className="small-action small-action--danger" type="button" onClick={() => removeFriend(friend, tr("Відхилити", "Decline"))}>{tr("Відхилити", "Decline")}</button>
                   </div>
                 </article>
               ))}
@@ -180,12 +182,12 @@ export default function FriendsPage() {
         )}
 
         <section className="friend-section">
-          <h2>Мої друзі</h2>
+          <h2>{tr("Мої друзі", "My friends")}</h2>
           {accepted.length === 0 ? (
             <div className="empty-state compact">
               <div className="empty-state__icon"><AppIcon name="friends" /></div>
-              <h2>Поки немає друзів</h2>
-              <p>Обміняйтеся кодами і прийміть запит.</p>
+              <h2>{tr("Поки немає друзів", "No friends yet")}</h2>
+              <p>{tr("Обміняйтеся кодами і прийміть запит.", "Exchange codes and accept a request.")}</p>
             </div>
           ) : (
             <div className="friend-list">
@@ -199,9 +201,9 @@ export default function FriendsPage() {
                       <span>
                         {live
                           ? live.presence === "online"
-                            ? "На карті зараз"
-                            : `Оновлено ${live.age_seconds} с тому`
-                          : "Геолокація недоступна"}
+                            ? tr("На карті зараз", "On the map now")
+                            : tr(`Оновлено ${live.age_seconds} с тому`, `Updated ${live.age_seconds}s ago`)
+                          : tr("Геолокація недоступна", "Location unavailable")}
                       </span>
                     </div>
                     <span className={`presence-dot ${live?.presence || "hidden"}`} />
@@ -211,7 +213,7 @@ export default function FriendsPage() {
                       onClick={() => removeFriend(friend)}
                       disabled={deletingId === friend.friendship_id}
                     >
-                      {deletingId === friend.friendship_id ? "..." : "Видалити"}
+                      {deletingId === friend.friendship_id ? "..." : tr("Видалити", "Remove")}
                     </button>
                   </article>
                 );
@@ -222,13 +224,13 @@ export default function FriendsPage() {
 
         {outgoing.length > 0 && (
           <section className="friend-section muted-section">
-            <h2>Очікують відповіді</h2>
+            <h2>{tr("Очікують відповіді", "Awaiting response")}</h2>
             <div className="friend-list">
               {outgoing.map((friend) => (
                 <article className="friend-row" key={friend.friendship_id}>
                   <Avatar user={friend} />
-                  <div className="friend-row__main"><strong>{friend.name}</strong><span>Запит очікує відповіді</span></div>
-                  <button className="small-action small-action--danger" type="button" onClick={() => removeFriend(friend, "Скасувати")}>Скасувати</button>
+                  <div className="friend-row__main"><strong>{friend.name}</strong><span>{tr("Запит очікує відповіді", "Request is awaiting a response")}</span></div>
+                  <button className="small-action small-action--danger" type="button" onClick={() => removeFriend(friend, tr("Скасувати", "Cancel"))}>{tr("Скасувати", "Cancel")}</button>
                 </article>
               ))}
             </div>

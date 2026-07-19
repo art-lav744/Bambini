@@ -8,15 +8,17 @@ import { ensureCurrentUser } from "../userSession.js";
 import { formatEventDateTime } from "../eventFormat.js";
 import { EVENT_TAG_OPTIONS, eventTagLabel, filterEventsByTags, toggleEventTag } from "../eventTags.js";
 import { eventsWithDistance, formatEventDistance } from "../mapMath.js";
+import { localizeApiMessage, useI18n } from "../i18n.js";
 
 const FILTERS = [
-  { value: "mine", label: "Мої" },
-  { value: "friends", label: "Друзі" },
-  { value: "public", label: "Публічні" },
+  { value: "mine", label: "Мої", labelEn: "Mine" },
+  { value: "friends", label: "Друзі", labelEn: "Friends" },
+  { value: "public", label: "Публічні", labelEn: "Public" },
 ];
 const EVENTS_REFRESH_MS = 8000;
 
 export default function EventsPage() {
+  const { language, tr } = useI18n();
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [myEvents, setMyEvents] = useState([]);
@@ -46,7 +48,10 @@ export default function EventsPage() {
     if (publicData.status === "fulfilled") setPublicEvents(publicData.value);
     if (notificationData.status === "fulfilled") setNotifications(notificationData.value);
     const failure = results.find((result) => result.status === "rejected");
-    setError(failure ? `Частину списків не оновлено: ${failure.reason?.message || "помилка сервера"}` : "");
+    setError(failure ? tr(
+      `Частину списків не оновлено: ${failure.reason?.message || "помилка сервера"}`,
+      `Some lists were not updated: ${localizeApiMessage(failure.reason?.message, language) || "server error"}`,
+    ) : "");
   }
 
   useEffect(() => {
@@ -62,12 +67,12 @@ export default function EventsPage() {
           if (document.visibilityState === "visible") loadEvents(profile);
         }, EVENTS_REFRESH_MS);
       })
-      .catch((err) => active && setError(err.message));
+      .catch((err) => active && setError(localizeApiMessage(err.message, language)));
     return () => {
       active = false;
       if (intervalId) window.clearInterval(intervalId);
     };
-  }, []);
+  }, [language]);
 
   useEffect(() => {
     let active = true;
@@ -110,7 +115,7 @@ export default function EventsPage() {
       await loadEvents(user);
       navigate(`/room/${event.code}`);
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
     } finally {
       setJoiningId(null);
     }
@@ -119,9 +124,9 @@ export default function EventsPage() {
   function leaveEvent(event) {
     if (!user || event.host_user_id === user.id) return;
     setConfirmation({
-      title: "Вийти з події?",
-      message: `Ви більше не будете учасником події «${event.title}».`,
-      confirmLabel: "Від’єднатися",
+      title: tr("Вийти з події?", "Leave the event?"),
+      message: tr(`Ви більше не будете учасником події «${event.title}».`, `You will no longer be a participant of “${event.title}”.`),
+      confirmLabel: tr("Від’єднатися", "Leave"),
       action: () => performLeaveEvent(event),
     });
   }
@@ -133,7 +138,7 @@ export default function EventsPage() {
       await api.leaveActivity(event.code, user.id);
       await loadEvents(user);
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
     } finally {
       setLeavingId(null);
     }
@@ -145,7 +150,7 @@ export default function EventsPage() {
     try {
       await api.markNotificationRead(user.id, notificationId);
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
       await loadEvents(user);
     }
   }
@@ -159,21 +164,25 @@ export default function EventsPage() {
   return (
     <main className="main-tab-page">
       <div className="tab-page__content">
-        <div className="eyebrow">Активності</div>
-        <h1>Події</h1>
+        <div className="eyebrow">{tr("Активності", "Activities")}</div>
+        <h1>{tr("Події", "Events")}</h1>
 
         {notifications.length > 0 && (
-          <section className="event-notifications" aria-label="Повідомлення про події">
+          <section className="event-notifications" aria-label={tr("Повідомлення про події", "Event notifications")}>
             {notifications.map((notification) => (
               <article className="event-notification" key={notification.id}>
                 <div>
-                  <strong>{notification.kind === "event_deleted" ? "Подію видалено" : "Подію оновлено"}</strong>
-                  <span>{notification.message}</span>
+                  <strong>{notification.kind === "event_deleted" ? tr("Подію видалено", "Event deleted") : tr("Подію оновлено", "Event updated")}</strong>
+                  <span>{language === "en"
+                    ? notification.kind === "event_deleted"
+                      ? `The event “${notification.event_title || "Event"}” was deleted by its host.`
+                      : `The event “${notification.event_title || "Event"}” was updated by its host.`
+                    : notification.message}</span>
                 </div>
                 {notification.kind === "event_updated" && notification.event_code && (
-                  <Link to={`/room/${notification.event_code}`}>Переглянути</Link>
+                  <Link to={`/room/${notification.event_code}`}>{tr("Переглянути", "View")}</Link>
                 )}
-                <button type="button" aria-label="Закрити повідомлення" onClick={() => dismissNotification(notification.id)}><AppIcon name="close" /></button>
+                <button type="button" aria-label={tr("Закрити повідомлення", "Close notification")} onClick={() => dismissNotification(notification.id)}><AppIcon name="close" /></button>
               </article>
             ))}
           </section>
@@ -183,20 +192,20 @@ export default function EventsPage() {
           <Link className="event-action-card" to="/create">
             <span className="event-action-card__symbol"><AppIcon name="plus" /></span>
             <div>
-              <strong>Створити подію</strong>
-              <span>Одна точка на карті</span>
+              <strong>{tr("Створити подію", "Create event")}</strong>
+              <span>{tr("Одна точка на карті", "One location on the map")}</span>
             </div>
           </Link>
           <Link className="event-action-card" to="/join">
             <span className="event-action-card__symbol"><AppIcon name="hash" /></span>
             <div>
-              <strong>Приєднатися за кодом</strong>
-              <span>Для публічних і приватних подій</span>
+              <strong>{tr("Приєднатися за кодом", "Join with code")}</strong>
+              <span>{tr("Для публічних і приватних подій", "For public and private events")}</span>
             </div>
           </Link>
         </div>
 
-        <div className="event-filter" role="tablist" aria-label="Фільтр подій">
+        <div className="event-filter" role="tablist" aria-label={tr("Фільтр подій", "Event filter")}>
           {FILTERS.map((item) => (
             <button
               key={item.value}
@@ -206,12 +215,12 @@ export default function EventsPage() {
               className={`event-filter__button${filter === item.value ? " is-active" : ""}`}
               onClick={() => setFilter(item.value)}
             >
-              {item.label}
+              {language === "en" ? item.labelEn : item.label}
             </button>
           ))}
         </div>
 
-        <section className={`event-tag-filter${tagFilterExpanded ? " is-expanded" : ""}`} aria-label="Фільтр подій за тегами">
+        <section className={`event-tag-filter${tagFilterExpanded ? " is-expanded" : ""}`} aria-label={tr("Фільтр подій за тегами", "Filter events by tags")}>
           <div className="event-tag-filter__heading">
             <button
               className="event-tag-filter__toggle"
@@ -220,9 +229,9 @@ export default function EventsPage() {
               aria-controls="event-tag-filter-options"
               onClick={() => setTagFilterExpanded((expanded) => !expanded)}
             >
-              <strong>Теги{tagFilter.length ? ` ${tagFilter.length}` : ""}</strong>
+              <strong>{tr("Теги", "Tags")}{tagFilter.length ? ` ${tagFilter.length}` : ""}</strong>
             </button>
-            {tagFilter.length > 0 && <button type="button" onClick={() => setTagFilter([])}>Скинути</button>}
+            {tagFilter.length > 0 && <button type="button" onClick={() => setTagFilter([])}>{tr("Скинути", "Reset")}</button>}
           </div>
           {tagFilterExpanded && (
             <div className="event-tag-filter__options" id="event-tag-filter-options">
@@ -234,7 +243,7 @@ export default function EventsPage() {
                   aria-pressed={tagFilter.includes(tag.value)}
                   onClick={() => setTagFilter((current) => toggleEventTag(current, tag.value, Number.POSITIVE_INFINITY))}
                 >
-                  {tag.label}
+                  {eventTagLabel(tag.value, language)}
                 </button>
               ))}
             </div>
@@ -242,8 +251,8 @@ export default function EventsPage() {
         </section>
 
         <section className="event-list-section">
-          {distanceStatus === "loading" && <p className="event-distance-status">Визначаємо відстань до подій…</p>}
-          {distanceStatus === "unavailable" && <p className="event-distance-status">Дозвольте геолокацію, щоб побачити відстань і сортування найближчих подій.</p>}
+          {distanceStatus === "loading" && <p className="event-distance-status">{tr("Визначаємо відстань до подій…", "Calculating distances to events…")}</p>}
+          {distanceStatus === "unavailable" && <p className="event-distance-status">{tr("Дозвольте геолокацію, щоб побачити відстань і сортування найближчих подій.", "Allow location access to see distances and sort events by proximity.")}</p>}
           {visibleEvents.length ? (
             <div className="event-list">
               {visibleEvents.map(({ event, distanceMeters }) => {
@@ -261,27 +270,27 @@ export default function EventsPage() {
                     <Link className="event-list-card__content" to={`/room/${event.code}`}>
                       <div className="event-list-card__topline">
                         <strong>{event.title}</strong>
-                        <time>{formatEventDateTime(event.start_time)}</time>
+                        <time>{formatEventDateTime(event.start_time, null, language)}</time>
                       </div>
-                      <span>{event.description || `Код ${event.code}`}</span>
+                      <span>{event.description || tr(`Код ${event.code}`, `Code ${event.code}`)}</span>
                       {Number.isFinite(distanceMeters) && (
-                        <span className="event-list-card__distance">До події: {formatEventDistance(distanceMeters)}</span>
+                        <span className="event-list-card__distance">{tr("До події:", "Distance:")} {formatEventDistance(distanceMeters, language)}</span>
                       )}
                       {event.tags?.length > 0 && (
                         <div className="event-tag-list event-tag-list--compact">
-                          {event.tags.map((tag) => <span className="event-tag" key={tag}>#{eventTagLabel(tag)}</span>)}
+                          {event.tags.map((tag) => <span className="event-tag" key={tag}>#{eventTagLabel(tag, language)}</span>)}
                         </div>
                       )}
                       <small>
                         {isHost
-                          ? "Організатор"
+                          ? tr("Організатор", "Host")
                           : joined
-                            ? "Учасник"
+                            ? tr("Учасник", "Participant")
                             : event.visibility === "friends"
-                              ? "Лише друзі"
+                              ? tr("Лише друзі", "Friends only")
                               : event.visibility === "private"
-                                ? "Приватна"
-                                : "Публічна"}
+                                ? tr("Приватна", "Private")
+                                : tr("Публічна", "Public")}
                       </small>
                     </Link>
                     {joined ? (
@@ -292,7 +301,7 @@ export default function EventsPage() {
                           onClick={() => leaveEvent(event)}
                           disabled={leavingId === event.id}
                         >
-                          {leavingId === event.id ? "..." : "Вийти"}
+                          {leavingId === event.id ? "..." : tr("Вийти", "Leave")}
                         </button>
                       )
                     ) : (
@@ -302,7 +311,7 @@ export default function EventsPage() {
                         onClick={() => joinEvent(event)}
                         disabled={joiningId === event.id}
                       >
-                        {joiningId === event.id ? "..." : "Приєднатися"}
+                        {joiningId === event.id ? "..." : tr("Приєднатися", "Join")}
                       </button>
                     )}
                   </article>
@@ -312,12 +321,12 @@ export default function EventsPage() {
           ) : (
             <div className="empty-state compact">
               {tagFilter.length > 0
-                ? "За обраними тегами подій немає."
+                ? tr("За обраними тегами подій немає.", "No events match the selected tags.")
                 : filter === "mine"
-                ? "У вас ще немає подій."
+                ? tr("У вас ще немає подій.", "You do not have any events yet.")
                 : filter === "friends"
-                  ? "У друзів немає доступних подій."
-                  : "Публічних подій поки немає."}
+                  ? tr("У друзів немає доступних подій.", "Your friends have no available events.")
+                  : tr("Публічних подій поки немає.", "There are no public events yet.")}
             </div>
           )}
         </section>

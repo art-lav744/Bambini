@@ -4,9 +4,10 @@ import BottomNav from "../components/BottomNav.jsx";
 import MapLibreMap from "../components/MapLibreMap.jsx";
 import { filterMapEvents, MAP_EVENT_FILTER_OPTIONS, normalizeMapEventFilter } from "../mapEventFilter.js";
 import { filterMapPeopleWithEventParticipants, MAP_PEOPLE_FILTER_OPTIONS, normalizeMapPeopleFilter } from "../mapPeopleFilter.js";
-import { EVENT_TAG_OPTIONS, filterEventsByTags, normalizeEventTags, toggleEventTag } from "../eventTags.js";
+import { EVENT_TAG_OPTIONS, eventTagLabel, filterEventsByTags, normalizeEventTags, toggleEventTag } from "../eventTags.js";
 import { DEFAULT_CUSTOMIZATION, normalizeCustomization } from "../customization.js";
 import { ensureCurrentUser } from "../userSession.js";
+import { localizeApiMessage, translate, useI18n } from "../i18n.js";
 
 const LOCATION_UPLOAD_INTERVAL_MS = 8000;
 const LOCATION_HEARTBEAT_MS = 30000;
@@ -41,11 +42,11 @@ function initialEventTagFilter() {
   }
 }
 
-function geolocationMessage(error) {
-  if (error?.code === 1) return "Доступ до геолокації заборонено. Дозвольте його в налаштуваннях браузера.";
-  if (error?.code === 2) return "Не вдалося визначити позицію. Перевірте геолокацію на телефоні.";
-  if (error?.code === 3) return "Визначення позиції зайняло надто багато часу.";
-  return "Не вдалося отримати геолокацію.";
+function geolocationMessage(error, language) {
+  if (error?.code === 1) return translate("Доступ до геолокації заборонено. Дозвольте його в налаштуваннях браузера.", "Location access is denied. Allow it in your browser settings.", language);
+  if (error?.code === 2) return translate("Не вдалося визначити позицію. Перевірте геолокацію на телефоні.", "Could not determine your position. Check location services on your phone.", language);
+  if (error?.code === 3) return translate("Визначення позиції зайняло надто багато часу.", "Determining your position took too long.", language);
+  return translate("Не вдалося отримати геолокацію.", "Could not get your location.", language);
 }
 
 function positionToLocation(position) {
@@ -62,11 +63,11 @@ function locationVisibility(user) {
   return user.location_visibility || (user.location_sharing_enabled ? "friends" : "none");
 }
 
-function cachedUser() {
+function cachedUser(language) {
   const id = Number(localStorage.getItem("outdoor_user_id"));
   return {
     id: Number.isInteger(id) && id > 0 ? id : null,
-    name: (localStorage.getItem("player_name") || "Користувач").trim() || "Користувач",
+    name: (localStorage.getItem("player_name") || translate("Користувач", "User", language)).trim() || translate("Користувач", "User", language),
     photo_url: null,
     location_visibility: "none",
     location_sharing_enabled: false,
@@ -76,6 +77,7 @@ function cachedUser() {
 }
 
 export default function MapPage() {
+  const { language, tr } = useI18n();
   const [user, setUser] = useState(null);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [visibleLocations, setVisibleLocations] = useState([]);
@@ -117,11 +119,11 @@ export default function MapPage() {
       setServerOnline(false);
       setServerError(error instanceof ApiError && error.status === 401
         ? error.message
-        : "Сервер тимчасово недоступний. Сесія збережена, карта та GPS продовжують працювати локально.");
-      setUser((current) => current || cachedUser());
+        : tr("Сервер тимчасово недоступний. Сесія збережена, карта та GPS продовжують працювати локально.", "The server is temporarily unavailable. Your session is saved; the map and GPS continue to work locally."));
+      setUser((current) => current || cachedUser(language));
       return null;
     }
-  }, []);
+  }, [language, tr]);
 
   useEffect(() => {
     let active = true;
@@ -146,22 +148,22 @@ export default function MapPage() {
       setServerOnline(true);
     } catch (error) {
       if (error instanceof ApiError && error.status === 0) setServerOnline(false);
-      setServerError("Позиція залишилась на пристрої та синхронізується після відновлення мережі.");
+      setServerError(tr("Позиція залишилась на пристрої та синхронізується після відновлення мережі.", "Your position remains on this device and will sync when the network returns."));
     }
-  }, [serverOnline, user]);
+  }, [serverOnline, tr, user]);
 
   const joinNearbyEvent = useCallback(async (event) => {
     if (!user?.id) return;
     try {
       const joined = await api.joinActivity(event.code, user.id);
       setEventPins((current) => current.map((item) => item.id === joined.id ? joined : item));
-      showActionMessage(`Ви приєдналися до «${event.title}»`);
+      showActionMessage(tr(`Ви приєдналися до «${event.title}»`, `You joined “${event.title}”`));
       return joined;
     } catch (error) {
-      setServerError(error.message);
+      setServerError(localizeApiMessage(error.message, language));
       throw error;
     }
-  }, [showActionMessage, user]);
+  }, [language, showActionMessage, tr, user]);
 
   const addVisibleUserToFriends = useCallback(async (visibleUser) => {
     if (!user?.id || !visibleUser?.friend_code) return;
@@ -172,13 +174,13 @@ export default function MapPage() {
           ? { ...item, friendship_status: "pending" }
           : item
       ));
-      showActionMessage(`Запит для ${visibleUser.name} надіслано`);
+      showActionMessage(tr(`Запит для ${visibleUser.name} надіслано`, `Request sent to ${visibleUser.name}`));
       return request;
     } catch (error) {
-      setServerError(error.message);
+      setServerError(localizeApiMessage(error.message, language));
       throw error;
     }
-  }, [showActionMessage, user]);
+  }, [language, showActionMessage, tr, user]);
 
   const handleLocationFound = useCallback((location, forceUpload = false) => {
     latestLocationRef.current = location;
@@ -191,7 +193,7 @@ export default function MapPage() {
     if (!user || !window.isSecureContext || !navigator.geolocation) return undefined;
     let disposed = false;
     const onPosition = (position, force = false) => !disposed && handleLocationFound(positionToLocation(position), force);
-    const onError = (error) => !disposed && setLocationError(geolocationMessage(error));
+    const onError = (error) => !disposed && setLocationError(geolocationMessage(error, language));
     const clearWatch = () => {
       if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
@@ -220,7 +222,7 @@ export default function MapPage() {
       window.removeEventListener("online", start);
       clearWatch();
     };
-  }, [handleLocationFound, user]);
+  }, [handleLocationFound, language, user]);
 
   useEffect(() => {
     if (!serverOnline || !user?.id || locationVisibility(user) === "none") return undefined;
@@ -239,13 +241,13 @@ export default function MapPage() {
         const locations = await api.getVisibleLocations(user.id);
         if (active) { setVisibleLocations(locations); setServerError(""); }
       } catch (error) {
-        if (active) setServerError(`Локації не оновлено: ${error.message}`);
+        if (active) setServerError(tr(`Локації не оновлено: ${error.message}`, `Locations were not updated: ${localizeApiMessage(error.message, language)}`));
       }
     };
     refreshLocations();
     const id = window.setInterval(refreshLocations, LOCATION_POLL_INTERVAL_MS);
     return () => { active = false; window.clearInterval(id); };
-  }, [serverOnline, user]);
+  }, [language, serverOnline, tr, user]);
 
   useEffect(() => {
     if (!serverOnline || !user?.id) return undefined;
@@ -256,13 +258,13 @@ export default function MapPage() {
         const events = await api.getVisibleActivities();
         if (active) setEventPins(events);
       } catch (error) {
-        if (active) setServerError(`Події не оновлено: ${error.message}`);
+        if (active) setServerError(tr(`Події не оновлено: ${error.message}`, `Events were not updated: ${localizeApiMessage(error.message, language)}`));
       }
     };
     refreshEvents();
     const id = window.setInterval(refreshEvents, EVENT_POLL_INTERVAL_MS);
     return () => { active = false; window.clearInterval(id); };
-  }, [serverOnline, user]);
+  }, [language, serverOnline, tr, user]);
 
   const visibility = locationVisibility(user);
   const displayedEvents = useMemo(() => filterEventsByTags(
@@ -274,10 +276,13 @@ export default function MapPage() {
     [displayedEvents, peopleFilter, user?.id, visibleLocations]
   );
   const locationStatus = currentLocation
-    ? `${displayedLocations.length} людей • ${displayedEvents.length} подій${serverOnline ? "" : " • локально"}`
-    : !window.isSecureContext ? "Карта доступна • GPS потребує HTTPS"
-      : visibility === "none" && user?.id ? "Позиція лише на вашому пристрої"
-        : "Очікуємо геолокацію...";
+    ? tr(
+      `${displayedLocations.length} людей • ${displayedEvents.length} подій${serverOnline ? "" : " • локально"}`,
+      `${displayedLocations.length} people • ${displayedEvents.length} events${serverOnline ? "" : " • local"}`,
+    )
+    : !window.isSecureContext ? tr("Карта доступна • GPS потребує HTTPS", "Map available • GPS requires HTTPS")
+      : visibility === "none" && user?.id ? tr("Позиція лише на вашому пристрої", "Position only on your device")
+        : tr("Очікуємо геолокацію...", "Waiting for location...");
 
   return (
     <main className="fullscreen-map-page">
@@ -289,7 +294,7 @@ export default function MapPage() {
         <div><strong>{user?.name || "Bambini"}</strong><span>{locationStatus}</span></div>
       </div>
       <div className="map-filter-stack">
-        <div className={`map-layer-filter map-people-filter${peopleFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label="Кого показувати на карті">
+        <div className={`map-layer-filter map-people-filter${peopleFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label={tr("Кого показувати на карті", "Who to show on the map")}>
           <button
             className={`map-layer-filter__label${peopleFilterExpanded ? " is-expanded" : ""}`}
             type="button"
@@ -297,7 +302,7 @@ export default function MapPage() {
             aria-controls="map-people-filter-options"
             onClick={() => setPeopleFilterExpanded((expanded) => !expanded)}
           >
-            Люди
+            {tr("Люди", "People")}
           </button>
           {peopleFilterExpanded && (
             <div className="map-layer-filter__options" id="map-people-filter-options">
@@ -316,13 +321,13 @@ export default function MapPage() {
                     }
                   }}
                 >
-                  {option.label}
+                  {language === "en" ? option.labelEn : option.label}
                 </button>
               ))}
             </div>
           )}
         </div>
-        <div className={`map-layer-filter map-event-filter${eventFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label="Які події показувати на карті">
+        <div className={`map-layer-filter map-event-filter${eventFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label={tr("Які події показувати на карті", "Which events to show on the map")}>
           <button
             className={`map-layer-filter__label${eventFilterExpanded ? " is-expanded" : ""}`}
             type="button"
@@ -330,7 +335,7 @@ export default function MapPage() {
             aria-controls="map-event-filter-options"
             onClick={() => setEventFilterExpanded((expanded) => !expanded)}
           >
-            Події
+            {tr("Події", "Events")}
           </button>
           {eventFilterExpanded && (
             <div className="map-layer-filter__options" id="map-event-filter-options">
@@ -349,13 +354,13 @@ export default function MapPage() {
                     }
                   }}
                 >
-                  {option.label}
+                  {language === "en" ? option.labelEn : option.label}
                 </button>
               ))}
             </div>
           )}
         </div>
-        <div className={`map-layer-filter map-tag-filter${eventTagFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label="Фільтр подій за тегами">
+        <div className={`map-layer-filter map-tag-filter${eventTagFilterExpanded ? " is-expanded" : ""}`} role="group" aria-label={tr("Фільтр подій за тегами", "Filter events by tags")}>
           <button
             className={`map-layer-filter__label${eventTagFilterExpanded ? " is-expanded" : ""}`}
             type="button"
@@ -363,7 +368,7 @@ export default function MapPage() {
             aria-controls="map-tag-filter-options"
             onClick={() => setEventTagFilterExpanded((expanded) => !expanded)}
           >
-            Теги{eventTagFilter.length ? ` ${eventTagFilter.length}` : ""}
+            {tr("Теги", "Tags")}{eventTagFilter.length ? ` ${eventTagFilter.length}` : ""}
           </button>
           {eventTagFilterExpanded && (
             <div className="map-tag-filter__options" id="map-tag-filter-options">
@@ -376,7 +381,7 @@ export default function MapPage() {
                   try { localStorage.setItem(EVENT_TAG_FILTER_STORAGE_KEY, "[]"); } catch { /* Session-only filter. */ }
                 }}
               >
-                Усі теги
+                {tr("Усі теги", "All tags")}
               </button>
               {EVENT_TAG_OPTIONS.map((tag) => (
                 <button
@@ -390,7 +395,7 @@ export default function MapPage() {
                     return next;
                   })}
                 >
-                  {tag.label}
+                  {eventTagLabel(tag.value, language)}
                 </button>
               ))}
             </div>

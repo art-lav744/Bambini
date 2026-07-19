@@ -1,4 +1,5 @@
 import { ApiError, api, getAuthToken, setAuthToken } from "./api.js";
+import { translate } from "./i18n.js";
 
 const USER_ID_KEY = "outdoor_user_id";
 const AUTH_EVENT = "bambini-auth-changed";
@@ -33,7 +34,7 @@ export function saveCurrentUser(user, token = null) {
   localStorage.removeItem(EMAIL_VERIFICATION_KEY);
   localStorage.removeItem(PENDING_EMAIL_KEY);
   localStorage.setItem(USER_ID_KEY, String(user.id));
-  localStorage.setItem("player_name", user.name || "Користувач");
+  localStorage.setItem("player_name", user.name || translate("Користувач", "User"));
   publishAuthChange(true);
 }
 
@@ -43,7 +44,7 @@ export function savePendingEmailVerification(user, email, token = null) {
   localStorage.setItem(EMAIL_VERIFICATION_KEY, "true");
   localStorage.setItem(PENDING_EMAIL_KEY, String(email || "").trim().toLowerCase());
   localStorage.setItem(USER_ID_KEY, String(user.id));
-  localStorage.setItem("player_name", user.name || "Користувач");
+  localStorage.setItem("player_name", user.name || translate("Користувач", "User"));
   publishAuthChange(false);
 }
 
@@ -67,13 +68,13 @@ export async function signOut() {
 }
 
 export async function ensureCurrentUser() {
-  if (!getAuthToken()) throw new ApiError("Потрібно увійти в акаунт", 401);
+  if (!getAuthToken()) throw new ApiError(translate("Потрібно увійти в акаунт", "You need to sign in"), 401);
   try {
     const user = await api.getMe();
     const verification = await api.getEmailVerificationStatus();
     if (verification.required) {
       savePendingEmailVerification(user, verification.email);
-      throw new ApiError("Підтвердьте email, щоб користуватися Bambini", 403);
+      throw new ApiError(translate("Підтвердьте email, щоб користуватися Bambini", "Verify your email to use Bambini"), 403);
     }
     saveCurrentUser(user);
     return user;
@@ -86,7 +87,7 @@ export async function ensureCurrentUser() {
 }
 
 function saveAuthResponse(response, email = "") {
-  if (!response?.token || !response?.user) throw new Error("Сервер не повернув сесію");
+  if (!response?.token || !response?.user) throw new Error(translate("Сервер не повернув сесію", "The server did not return a session"));
   if (response.email_verification_required) {
     savePendingEmailVerification(response.user, email, response.token);
     return { user: response.user, verificationRequired: true };

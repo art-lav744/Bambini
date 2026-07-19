@@ -11,6 +11,7 @@ import MapLibreMap from "../components/MapLibreMap.jsx";
 import { ensureCurrentUser } from "../userSession.js";
 import { eventDateTimeToLocal, formatEventDateTime, localDateTimeToUtc } from "../eventFormat.js";
 import { eventTagLabel, normalizeEventTags } from "../eventTags.js";
+import { localizeApiMessage, useI18n } from "../i18n.js";
 
 const ROOM_REFRESH_MS = 10000;
 const ROOM_LOCATION_UPLOAD_MS = 8000;
@@ -47,6 +48,7 @@ function initials(name = "?") {
 }
 
 export default function RoomPage() {
+  const { language, tr } = useI18n();
   const { code } = useParams();
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -85,7 +87,7 @@ export default function RoomPage() {
         navigate("/events", { replace: true });
         return;
       }
-      setError(activityResult.reason?.message || "Не вдалося завантажити подію");
+      setError(localizeApiMessage(activityResult.reason?.message, language) || tr("Не вдалося завантажити подію", "Could not load the event"));
       return;
     }
 
@@ -94,15 +96,18 @@ export default function RoomPage() {
       setParticipants(participantsResult.value);
       setError("");
     } else {
-      setError(`Подію завантажено, але список учасників не оновлено: ${participantsResult.reason?.message || "помилка сервера"}`);
+      setError(tr(
+        `Подію завантажено, але список учасників не оновлено: ${participantsResult.reason?.message || "помилка сервера"}`,
+        `The event loaded, but the participant list was not updated: ${localizeApiMessage(participantsResult.reason?.message, language) || "server error"}`,
+      ));
     }
-  }, [code, navigate]);
+  }, [code, language, navigate, tr]);
 
   useEffect(() => {
     let active = true;
     ensureCurrentUser()
       .then((profile) => active && setUser(profile))
-      .catch((err) => active && setError(err.message));
+      .catch((err) => active && setError(localizeApiMessage(err.message, language)));
     loadRoom();
     const intervalId = window.setInterval(() => {
       if (document.visibilityState === "visible") loadRoom();
@@ -111,7 +116,7 @@ export default function RoomPage() {
       active = false;
       window.clearInterval(intervalId);
     };
-  }, [loadRoom]);
+  }, [language, loadRoom]);
 
   useEffect(() => {
     if (!user?.id) return undefined;
@@ -208,7 +213,7 @@ export default function RoomPage() {
       await api.joinActivity(activity.code, user.id);
       await loadRoom();
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
     } finally {
       setJoining(false);
     }
@@ -217,9 +222,9 @@ export default function RoomPage() {
   function leaveEvent() {
     if (!user || !activity || isHost || !isParticipant || leaving) return;
     setConfirmation({
-      title: "Вийти з події?",
-      message: `Ви більше не будете учасником події «${activity.title}».`,
-      confirmLabel: "Від’єднатися",
+      title: tr("Вийти з події?", "Leave the event?"),
+      message: tr(`Ви більше не будете учасником події «${activity.title}».`, `You will no longer be a participant of “${activity.title}”.`),
+      confirmLabel: tr("Від’єднатися", "Leave"),
       action: performLeaveEvent,
     });
   }
@@ -231,7 +236,7 @@ export default function RoomPage() {
       await api.leaveActivity(activity.code, user.id);
       navigate("/events", { replace: true });
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
       setLeaving(false);
     }
   }
@@ -239,9 +244,9 @@ export default function RoomPage() {
   function removeParticipant(participant) {
     if (!activity || !isHost || participant.is_host || removingUserId !== null) return;
     setConfirmation({
-      title: "Видалити учасника?",
-      message: `${participant.name} буде видалено зі списку учасників події.`,
-      confirmLabel: "Видалити",
+      title: tr("Видалити учасника?", "Remove participant?"),
+      message: tr(`${participant.name} буде видалено зі списку учасників події.`, `${participant.name} will be removed from the event participant list.`),
+      confirmLabel: tr("Видалити", "Remove"),
       action: () => performRemoveParticipant(participant),
     });
   }
@@ -253,7 +258,7 @@ export default function RoomPage() {
       await api.removeActivityMember(activity.code, participant.user_id);
       await loadRoom();
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
     } finally {
       setRemovingUserId(null);
     }
@@ -277,9 +282,11 @@ export default function RoomPage() {
             friendship_direction: canAccept ? "incoming" : "outgoing",
           }
         : item));
-      setNotice(canAccept ? `${participant.name} тепер у друзях` : `Запит для ${participant.name} надіслано`);
+      setNotice(canAccept
+        ? tr(`${participant.name} тепер у друзях`, `${participant.name} is now your friend`)
+        : tr(`Запит для ${participant.name} надіслано`, `Request sent to ${participant.name}`));
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
     } finally {
       setFriendActionUserId(null);
     }
@@ -313,12 +320,12 @@ export default function RoomPage() {
   function handleEditImage(file) {
     if (!file) return;
     if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
-      setError("Оберіть зображення розміром до 2 МБ.");
+      setError(tr("Оберіть зображення розміром до 2 МБ.", "Choose an image up to 2 MB."));
       return;
     }
     const reader = new FileReader();
     reader.onload = () => setEditForm((current) => ({ ...current, image_url: String(reader.result || "") }));
-    reader.onerror = () => setError("Не вдалося прочитати зображення.");
+    reader.onerror = () => setError(tr("Не вдалося прочитати зображення.", "Could not read the image."));
     reader.readAsDataURL(file);
   }
 
@@ -346,9 +353,9 @@ export default function RoomPage() {
       setActivity(updated);
       setEditForm(null);
       setSheetView("details");
-      setNotice("Зміни збережено. Учасники отримали повідомлення.");
+      setNotice(tr("Зміни збережено. Учасники отримали повідомлення.", "Changes saved. Participants have been notified."));
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
     } finally {
       setSaving(false);
     }
@@ -357,9 +364,9 @@ export default function RoomPage() {
   function deleteEvent() {
     if (!activity || !isHost || deleting) return;
     setConfirmation({
-      title: "Видалити подію?",
-      message: `Подію «${activity.title}» буде видалено назавжди. Учасники отримають повідомлення.`,
-      confirmLabel: "Видалити подію",
+      title: tr("Видалити подію?", "Delete event?"),
+      message: tr(`Подію «${activity.title}» буде видалено назавжди. Учасники отримають повідомлення.`, `The event “${activity.title}” will be deleted permanently. Participants will be notified.`),
+      confirmLabel: tr("Видалити подію", "Delete event"),
       action: performDeleteEvent,
     });
   }
@@ -371,7 +378,7 @@ export default function RoomPage() {
       await api.deleteActivity(activity.code);
       navigate("/events", { replace: true });
     } catch (err) {
-      setError(err.message);
+      setError(localizeApiMessage(err.message, language));
       setDeleting(false);
     }
   }
@@ -435,11 +442,11 @@ export default function RoomPage() {
     return (
       <main className="form-page">
         <p className="error">{error}</p>
-        <Link className="button secondary" to="/events">До подій</Link>
+        <Link className="button secondary" to="/events">{tr("До подій", "Go to events")}</Link>
       </main>
     );
   }
-  if (!activity) return <main className="loading-screen">Завантаження...</main>;
+  if (!activity) return <main className="loading-screen">{tr("Завантаження...", "Loading...")}</main>;
 
   return (
     <main className="room-map-page">
@@ -453,8 +460,8 @@ export default function RoomPage() {
       />
 
       <div className="room-map-header">
-        <Link to="/map" className="room-map-header__back" aria-label="Повернутися на карту"><AppIcon name="arrow-left" /></Link>
-        <div className="room-map-header__title"><strong>{activity.title}</strong><span>Код: {activity.code}</span></div>
+        <Link to="/map" className="room-map-header__back" aria-label={tr("Повернутися на карту", "Return to map")}><AppIcon name="arrow-left" /></Link>
+        <div className="room-map-header__title"><strong>{activity.title}</strong><span>{tr("Код:", "Code:")} {activity.code}</span></div>
       </div>
 
       <aside
@@ -464,7 +471,7 @@ export default function RoomPage() {
         <button
           className="room-sheet__handle"
           type="button"
-          aria-label={panelOpen ? "Згорнути інформацію про подію" : "Розгорнути інформацію про подію"}
+          aria-label={panelOpen ? tr("Згорнути інформацію про подію", "Collapse event information") : tr("Розгорнути інформацію про подію", "Expand event information")}
           aria-expanded={panelOpen}
           onClick={handlePanelHandleClick}
           onPointerDown={handlePanelPointerDown}
@@ -473,48 +480,48 @@ export default function RoomPage() {
           onPointerCancel={cancelPanelDrag}
         />
         <div className="event-room-sheet__content" aria-hidden={!panelOpen}>
-          <nav className="event-room-tabs" aria-label="Деталі події">
-            <button type="button" className={sheetView === "details" ? "is-active" : ""} onClick={() => setSheetView("details")}>Про подію</button>
-            <button type="button" className={sheetView === "participants" ? "is-active" : ""} onClick={() => setSheetView("participants")}>Учасники <span>{participants.length}{activity.capacity ? `/${activity.capacity}` : ""}</span></button>
-            {isHost && <button type="button" className={sheetView === "edit" ? "is-active" : ""} onClick={openEditor}>Редагувати</button>}
+          <nav className="event-room-tabs" aria-label={tr("Деталі події", "Event details")}>
+            <button type="button" className={sheetView === "details" ? "is-active" : ""} onClick={() => setSheetView("details")}>{tr("Про подію", "About")}</button>
+            <button type="button" className={sheetView === "participants" ? "is-active" : ""} onClick={() => setSheetView("participants")}>{tr("Учасники", "Participants")} <span>{participants.length}{activity.capacity ? `/${activity.capacity}` : ""}</span></button>
+            {isHost && <button type="button" className={sheetView === "edit" ? "is-active" : ""} onClick={openEditor}>{tr("Редагувати", "Edit")}</button>}
           </nav>
 
           {sheetView === "details" && (
             <section className="event-room-view">
               {activity.image_url && <div className="event-room-sheet__image"><img src={activity.image_url} alt="" /></div>}
               <div className="event-room-sheet__summary">
-                <div className="event-room-sheet__time">{formatEventDateTime(activity.start_time, activity.end_time)}</div>
+                <div className="event-room-sheet__time">{formatEventDateTime(activity.start_time, activity.end_time, language)}</div>
                 <div className="room-sheet__meta">
-                  {isHost && <span className="badge">Організатор</span>}
-                  <span className="badge">{activity.visibility === "friends" ? "Лише друзі" : activity.visibility === "private" ? "Приватна" : "Публічна"}</span>
+                  {isHost && <span className="badge">{tr("Організатор", "Host")}</span>}
+                  <span className="badge">{activity.visibility === "friends" ? tr("Лише друзі", "Friends only") : activity.visibility === "private" ? tr("Приватна", "Private") : tr("Публічна", "Public")}</span>
                 </div>
               </div>
               {activity.description && <p className="room-sheet__hint">{activity.description}</p>}
               {activity.tags?.length > 0 && (
-                <div className="event-tag-list" aria-label="Теги події">
-                  {activity.tags.map((tag) => <span className="event-tag" key={tag}>#{eventTagLabel(tag)}</span>)}
+                <div className="event-tag-list" aria-label={tr("Теги події", "Event tags")}>
+                  {activity.tags.map((tag) => <span className="event-tag" key={tag}>#{eventTagLabel(tag, language)}</span>)}
                 </div>
               )}
 
               <div className="event-room-actions">
                 {directionsUrl && (
                   <a className="button secondary event-directions-button" href={directionsUrl} target="_blank" rel="noreferrer">
-                    <span>Маршрут у Google Maps</span><AppIcon name="external-link" />
+                    <span>{tr("Маршрут у Google Maps", "Directions in Google Maps")}</span><AppIcon name="external-link" />
                   </a>
                 )}
                 {!isParticipant && (
                   <button className="button primary" type="button" onClick={joinEvent} disabled={joining}>
-                    {joining ? "Приєднання..." : "Приєднатися до події"}
+                    {joining ? tr("Приєднання...", "Joining...") : tr("Приєднатися до події", "Join event")}
                   </button>
                 )}
                 {!isHost && isParticipant && (
                   <button className="button danger-button" type="button" onClick={leaveEvent} disabled={leaving}>
-                    {leaving ? "Від’єднання..." : "Від’єднатися від події"}
+                    {leaving ? tr("Від’єднання...", "Leaving...") : tr("Від’єднатися від події", "Leave event")}
                   </button>
                 )}
                 {isHost && (
                   <button className="button danger-button" type="button" onClick={deleteEvent} disabled={deleting}>
-                    {deleting ? "Видалення..." : "Видалити подію"}
+                    {deleting ? tr("Видалення...", "Deleting...") : tr("Видалити подію", "Delete event")}
                   </button>
                 )}
               </div>
@@ -534,23 +541,23 @@ export default function RoomPage() {
                     </div>
                     <div className="event-participant-row__identity">
                       <strong>{participant.name}</strong>
-                      <span>{participant.is_host ? "Організатор" : isSelf ? "Це ви" : participant.friendship_status === "accepted" ? "У друзях" : "Учасник"}</span>
+                      <span>{participant.is_host ? tr("Організатор", "Host") : isSelf ? tr("Це ви", "This is you") : participant.friendship_status === "accepted" ? tr("У друзях", "Friend") : tr("Учасник", "Participant")}</span>
                     </div>
                     {!isSelf && (
                       <div className="event-participant-row__actions">
                         {(canAccept || canRequest) && (
                           <button className="small-action" type="button" onClick={() => updateFriendship(participant)} disabled={friendActionUserId !== null}>
-                            {friendActionUserId === participant.user_id ? "..." : canAccept ? "Прийняти" : "Додати в друзі"}
+                            {friendActionUserId === participant.user_id ? "..." : canAccept ? tr("Прийняти", "Accept") : tr("Додати в друзі", "Add friend")}
                           </button>
                         )}
                         {participant.friendship_status === "pending" && !canAccept && (
-                          <span className="event-participant-row__pending">Запит надіслано</span>
+                          <span className="event-participant-row__pending">{tr("Запит надіслано", "Request sent")}</span>
                         )}
                         {isHost && !participant.is_host && (
                           <button
                             className="event-participant-row__remove"
                             type="button"
-                            aria-label={`Видалити ${participant.name} з події`}
+                            aria-label={tr(`Видалити ${participant.name} з події`, `Remove ${participant.name} from the event`)}
                             onClick={() => removeParticipant(participant)}
                             disabled={removingUserId !== null}
                           >
@@ -567,46 +574,46 @@ export default function RoomPage() {
 
           {sheetView === "edit" && editForm && (
             <form className="event-room-view room-event-editor" onSubmit={saveEvent}>
-              <label>Назва<input name="title" value={editForm.title} onChange={updateEditField} minLength="3" required /></label>
-              <label>Опис<textarea name="description" value={editForm.description} onChange={updateEditField} rows="3" /></label>
+              <label>{tr("Назва", "Name")}<input name="title" value={editForm.title} onChange={updateEditField} minLength="3" required /></label>
+              <label>{tr("Опис", "Description")}<textarea name="description" value={editForm.description} onChange={updateEditField} rows="3" /></label>
               <EventTagPicker value={editForm.tags} onChange={(tags) => setEditForm((current) => ({ ...current, tags }))} />
               <div className="room-event-editor__columns">
-                <label>Початок<input type="datetime-local" name="start_time" value={editForm.start_time} onChange={updateEditField} required /></label>
-                <label>Завершення<input type="datetime-local" name="end_time" value={editForm.end_time} min={editForm.start_time} onChange={updateEditField} /></label>
+                <label>{tr("Початок", "Start")}<input type="datetime-local" name="start_time" value={editForm.start_time} onChange={updateEditField} required /></label>
+                <label>{tr("Завершення", "End")}<input type="datetime-local" name="end_time" value={editForm.end_time} min={editForm.start_time} onChange={updateEditField} /></label>
               </div>
               <div className="room-event-editor__columns">
-                <label>Доступ
+                <label>{tr("Доступ", "Access")}
                   <select name="visibility" value={editForm.visibility} onChange={updateEditField}>
-                    <option value="public">Публічна</option>
-                    <option value="friends">Лише друзі</option>
-                    <option value="private">Приватна</option>
+                    <option value="public">{tr("Публічна", "Public")}</option>
+                    <option value="friends">{tr("Лише друзі", "Friends only")}</option>
+                    <option value="private">{tr("Приватна", "Private")}</option>
                   </select>
                 </label>
-                <label>Позначка
+                <label>{tr("Позначка", "Pin")}
                   <select name="pin_type" value={editForm.pin_type} onChange={updateEditField}>
-                    {EVENT_PINS.map((pin) => <option value={pin.id} key={pin.id}>{pin.label}</option>)}
+                    {EVENT_PINS.map((pin) => <option value={pin.id} key={pin.id}>{language === "en" ? pin.labelEn : pin.label}</option>)}
                   </select>
                 </label>
               </div>
               <label className="capacity-toggle room-event-editor__capacity">
                 <input type="checkbox" checked={editForm.capacity !== null} onChange={(event) => setEditCapacity(event.target.checked ? Math.max(participants.length, 8) : "")} />
-                Обмежити кількість учасників
+                {tr("Обмежити кількість учасників", "Limit the number of participants")}
               </label>
               {editForm.capacity !== null && (
-                <label>Місткість<input type="number" min={participants.length} max="50" value={editForm.capacity} onChange={(event) => setEditCapacity(event.target.value)} /></label>
+                <label>{tr("Місткість", "Capacity")}<input type="number" min={participants.length} max="50" value={editForm.capacity} onChange={(event) => setEditCapacity(event.target.value)} /></label>
               )}
               <div className="room-event-editor__image">
-                {editForm.image_url && <img src={editForm.image_url} alt="Попередній перегляд" />}
-                <label className="small-action">{editForm.image_url ? "Змінити фото" : "Додати фото"}<input type="file" accept="image/*" onChange={(event) => handleEditImage(event.target.files[0])} /></label>
-                {editForm.image_url && <button type="button" className="small-action small-action--danger" onClick={() => setEditForm((current) => ({ ...current, image_url: "" }))}>Видалити фото</button>}
+                {editForm.image_url && <img src={editForm.image_url} alt={tr("Попередній перегляд", "Preview")} />}
+                <label className="small-action">{editForm.image_url ? tr("Змінити фото", "Change photo") : tr("Додати фото", "Add photo")}<input type="file" accept="image/*" onChange={(event) => handleEditImage(event.target.files[0])} /></label>
+                {editForm.image_url && <button type="button" className="small-action small-action--danger" onClick={() => setEditForm((current) => ({ ...current, image_url: "" }))}>{tr("Видалити фото", "Remove photo")}</button>}
               </div>
               <div className="room-event-editor__location">
-                <strong>Точка події</strong>
+                <strong>{tr("Точка події", "Event location")}</strong>
                 <EventLocationPicker value={editLocation} onChange={setEditLocation} />
               </div>
               <div className="event-room-actions event-room-actions--split">
-                <button className="button primary" disabled={saving || !editLocation}>{saving ? "Збереження..." : "Зберегти зміни"}</button>
-                <button className="button secondary" type="button" onClick={() => setSheetView("details")} disabled={saving}>Скасувати</button>
+                <button className="button primary" disabled={saving || !editLocation}>{saving ? tr("Збереження...", "Saving...") : tr("Зберегти зміни", "Save changes")}</button>
+                <button className="button secondary" type="button" onClick={() => setSheetView("details")} disabled={saving}>{tr("Скасувати", "Cancel")}</button>
               </div>
             </form>
           )}

@@ -1,3 +1,5 @@
+import { getLanguage, localizeApiMessage, translate } from "./i18n.js";
+
 const CONFIGURED_API_URL = (import.meta.env?.VITE_API_URL || "").trim();
 const AUTH_TOKEN_KEY = "outdoor_auth_token";
 
@@ -70,16 +72,18 @@ async function request(path, options = {}) {
     });
   } catch {
     throw new ApiError(
-      "Немає з’єднання з сервером. Перевірте мережу та адресу backend.",
+      translate("Немає з’єднання з сервером. Перевірте мережу та адресу backend.", "Cannot connect to the server. Check your network and backend address."),
       0
     );
   }
 
   if (!response.ok) {
-    let message = `Помилка сервера (${response.status})`;
+    let message = translate(`Помилка сервера (${response.status})`, `Server error (${response.status})`);
+    let originalMessage = message;
     try {
       const data = await response.json();
       message = typeof data.detail === "string" ? data.detail : message;
+      originalMessage = message;
     } catch {
       // Keep fallback.
     }
@@ -90,11 +94,11 @@ async function request(path, options = {}) {
       localStorage.removeItem("bambini_pending_email");
       window.dispatchEvent(new CustomEvent("bambini-auth-changed", { detail: { authenticated: false } }));
     }
-    if (response.status === 403 && message.includes("Підтвердьте email")) {
+    if (response.status === 403 && originalMessage.includes("Підтвердьте email")) {
       localStorage.setItem("bambini_email_verification_required", "true");
       window.dispatchEvent(new CustomEvent("bambini-auth-changed", { detail: { authenticated: false } }));
     }
-    throw new ApiError(message, response.status);
+    throw new ApiError(localizeApiMessage(message, getLanguage()), response.status);
   }
 
   if (response.status === 204) return null;

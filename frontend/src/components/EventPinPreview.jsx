@@ -1,11 +1,11 @@
 export const EVENT_PINS = [
-  { id: "default", label: "Стандартна" },
-  { id: "football", label: "Футбол" },
-  { id: "basketball", label: "Баскетбол" },
-  { id: "volleyball", label: "Волейбол" },
-  { id: "tennis", label: "Теніс" },
-  { id: "pingpong", label: "Пінг-понг" },
-  { id: "eightball", label: "Більярд" },
+  { id: "default", label: "Стандартна", labelEn: "Default" },
+  { id: "football", label: "Футбол", labelEn: "Football" },
+  { id: "basketball", label: "Баскетбол", labelEn: "Basketball" },
+  { id: "volleyball", label: "Волейбол", labelEn: "Volleyball" },
+  { id: "tennis", label: "Теніс", labelEn: "Tennis" },
+  { id: "pingpong", label: "Пінг-понг", labelEn: "Table tennis" },
+  { id: "eightball", label: "Більярд", labelEn: "Billiards" },
 ];
 
 export default function EventPinPreview({

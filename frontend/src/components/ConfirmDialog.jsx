@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import AppIcon from "./AppIcon.jsx";
+import { useI18n } from "../i18n.js";
 
-export default function ConfirmDialog({ open, title, message, confirmLabel = "Підтвердити", onCancel, onConfirm }) {
+export default function ConfirmDialog({ open, title, message, confirmLabel, onCancel, onConfirm }) {
+  const { tr } = useI18n();
   const cancelButtonRef = useRef(null);
 
   useEffect(() => {
@@ -28,8 +30,8 @@ export default function ConfirmDialog({ open, title, message, confirmLabel = "П
         <h2 id="app-confirm-title">{title}</h2>
         <p id="app-confirm-message">{message}</p>
         <div className="app-confirm-dialog__actions">
-          <button ref={cancelButtonRef} className="button secondary" type="button" onClick={onCancel}>Скасувати</button>
-          <button className="button app-confirm-dialog__danger" type="button" onClick={onConfirm}>{confirmLabel}</button>
+          <button ref={cancelButtonRef} className="button secondary" type="button" onClick={onCancel}>{tr("Скасувати", "Cancel")}</button>
+          <button className="button app-confirm-dialog__danger" type="button" onClick={onConfirm}>{confirmLabel || tr("Підтвердити", "Confirm")}</button>
         </div>
       </section>
     </div>

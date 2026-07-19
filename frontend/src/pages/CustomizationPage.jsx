@@ -12,8 +12,10 @@ import {
   THEMES,
 } from "../customization.js";
 import { ensureCurrentUser } from "../userSession.js";
+import { localizeAchievement, localizeApiMessage, useI18n } from "../i18n.js";
 
 export default function CustomizationPage() {
+  const { language, tr } = useI18n();
   const [customization, setCustomization] = useState(DEFAULT_CUSTOMIZATION);
   const [achievementSummary, setAchievementSummary] = useState({ unlocked_count: 0, total_count: 0, achievements: [] });
   const [activePage, setActivePage] = useState("character");
@@ -35,7 +37,7 @@ export default function CustomizationPage() {
         setCustomization(applyCustomization(saved));
       })
       .catch((loadError) => {
-        if (active) setError(loadError.message);
+        if (active) setError(localizeApiMessage(loadError.message, language));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -43,7 +45,7 @@ export default function CustomizationPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [language]);
 
   async function selectOption(field, optionId) {
     if (!userId || saving || customization[field] === optionId) return;
@@ -56,10 +58,10 @@ export default function CustomizationPage() {
     try {
       const saved = await api.updateCustomization(userId, next);
       setCustomization(applyCustomization(saved));
-      setMessage(field === "theme" ? "Тему збережено" : "Персонажа збережено");
+      setMessage(field === "theme" ? tr("Тему збережено", "Theme saved") : tr("Персонажа збережено", "Mascot saved"));
     } catch (saveError) {
       setCustomization(applyCustomization(previous));
-      setError(saveError.message);
+      setError(localizeApiMessage(saveError.message, language));
     } finally {
       setSaving(false);
     }
@@ -67,9 +69,10 @@ export default function CustomizationPage() {
 
   function optionButton(group, option) {
     const selected = customization[group.id] === option.id;
-    const requirement = achievementSummary.achievements.find(
+    const rawRequirement = achievementSummary.achievements.find(
       (achievement) => achievement.reward_field === group.id && achievement.reward_value === option.id
     );
+    const requirement = localizeAchievement(rawRequirement, language);
     const lockedByAchievement = Boolean(requirement && !requirement.unlocked);
     const lockedByDolphin = customization.orca_skin === "dolphin" && ["header_style", "bottom_style"].includes(group.id);
     const locked = lockedByAchievement || lockedByDolphin;
@@ -78,9 +81,9 @@ export default function CustomizationPage() {
     const progressPercent = Math.min(100, Math.round((progressValue / progressTarget) * 100));
     const remaining = requirement ? Math.max(0, progressTarget - progressValue) : 0;
     const lockTitle = lockedByDolphin
-      ? "Для бази «Дельфін» шолом і костюм недоступні"
+      ? tr("Для бази «Дельфін» шолом і костюм недоступні", "Helmets and suits are unavailable for the Dolphin base")
       : lockedByAchievement
-        ? `${requirement.description}: досягнення «${requirement.title}»`
+        ? tr(`${requirement.description}: досягнення «${requirement.title}»`, `${requirement.description}: achievement “${requirement.title}”`)
         : undefined;
     return (
       <button
@@ -101,18 +104,18 @@ export default function CustomizationPage() {
             : <AppIcon name={option.background ? "image" : "empty"} className="customization-option__empty" />}
         </span>
         <span className="customization-option__copy">
-          <strong>{option.name}</strong>
-          <small>{requirement ? requirement.description : "Доступно одразу"}</small>
+          <strong>{language === "en" ? option.nameEn || option.name : option.name}</strong>
+          <small>{requirement ? requirement.description : tr("Доступно одразу", "Available immediately")}</small>
           {requirement && (
             <>
               <span className="cosmetic-progress__meta">
-                <span>{remaining ? `Залишилося: ${remaining}` : "Відкрито"}</span>
+                <span>{remaining ? tr(`Залишилося: ${remaining}`, `${remaining} remaining`) : tr("Відкрито", "Unlocked")}</span>
                 <span>{progressValue}/{progressTarget}</span>
               </span>
               <span
                 className="cosmetic-progress"
                 role="progressbar"
-                aria-label={`Прогрес для ${option.name}`}
+                aria-label={tr(`Прогрес для ${option.name}`, `Progress for ${option.nameEn || option.name}`)}
                 aria-valuemin="0"
                 aria-valuemax={progressTarget}
                 aria-valuenow={progressValue}
@@ -134,31 +137,31 @@ export default function CustomizationPage() {
       <div className="tab-page__content">
         <Link className="back-link customization-back-link" to="/profile">
           <AppIcon name="arrow-left" />
-          <span>Назад до профілю</span>
+          <span>{tr("Назад до профілю", "Back to profile")}</span>
         </Link>
         <section className="customization-hero">
           <div>
-            <span className="eyebrow">Персоналізація</span>
-            <h1>Ваш стиль</h1>
-            <p className="muted">Налаштуйте персонажа та тему Bambini.</p>
+            <span className="eyebrow">{tr("Персоналізація", "Customization")}</span>
+            <h1>{tr("Ваш стиль", "Your style")}</h1>
+            <p className="muted">{tr("Налаштуйте персонажа та тему Bambini.", "Customize your Bambini mascot and theme.")}</p>
           </div>
           <MascotPreview customization={customization} />
         </section>
 
-        <nav className="customization-tabs" aria-label="Розділи персоналізації">
+        <nav className="customization-tabs" aria-label={tr("Розділи персоналізації", "Customization sections")}>
           <button
             type="button"
             className={activePage === "character" ? "is-active" : ""}
             onClick={() => setActivePage("character")}
           >
-            Персонаж
+            {tr("Персонаж", "Mascot")}
           </button>
           <button
             type="button"
             className={activePage === "theme" ? "is-active" : ""}
             onClick={() => setActivePage("theme")}
           >
-            Тема
+            {tr("Тема", "Theme")}
           </button>
         </nav>
 
@@ -168,14 +171,14 @@ export default function CustomizationPage() {
               <section key={group.id} className="customization-section">
                 <div className="customization-section__heading">
                   <div>
-                    <span className="eyebrow">{group.label}</span>
-                    <h2>Оберіть варіант</h2>
+                    <span className="eyebrow">{language === "en" ? group.labelEn : group.label}</span>
+                    <h2>{tr("Оберіть варіант", "Choose an option")}</h2>
                   </div>
-                  {saving && <span className="customization-saving">Збереження…</span>}
+                  {saving && <span className="customization-saving">{tr("Збереження…", "Saving…")}</span>}
                 </div>
-                <p className="muted">{group.description}</p>
+                <p className="muted">{language === "en" ? group.descriptionEn : group.description}</p>
                 {customization.orca_skin === "dolphin" && group.id === "header_style" && (
-                  <p className="customization-lock-note">Для бази «Дельфін» шолом і костюм автоматично вимкнені.</p>
+                  <p className="customization-lock-note">{tr("Для бази «Дельфін» шолом і костюм автоматично вимкнені.", "Helmets and suits are automatically disabled for the Dolphin base.")}</p>
                 )}
                 <div className="customization-grid">{group.options.map((option) => optionButton(group, option))}</div>
               </section>
@@ -185,12 +188,12 @@ export default function CustomizationPage() {
           <section className="customization-section" aria-busy={loading || saving}>
             <div className="customization-section__heading">
               <div>
-                <span className="eyebrow">Тема</span>
-                <h2>Кольори застосунку</h2>
+                <span className="eyebrow">{tr("Тема", "Theme")}</span>
+                <h2>{tr("Кольори застосунку", "App colours")}</h2>
               </div>
-              {saving && <span className="customization-saving">Збереження…</span>}
+              {saving && <span className="customization-saving">{tr("Збереження…", "Saving…")}</span>}
             </div>
-            <p className="muted">Оберіть одну з тем у папці themes.</p>
+            <p className="muted">{tr("Оберіть одну з тем у папці themes.", "Choose one of the available themes.")}</p>
             <div className="theme-grid">
               {THEMES.map((theme) => {
                 const selected = customization.theme === theme.id;
@@ -205,7 +208,7 @@ export default function CustomizationPage() {
                     onClick={() => selectOption("theme", theme.id)}
                   >
                     <span className="theme-option__symbol" aria-hidden="true"><AppIcon name={theme.icon} /></span>
-                    <span>{theme.name}</span>
+                    <span>{language === "en" ? theme.nameEn : theme.name}</span>
                     <span className="customization-option__check">{selected ? <AppIcon name="check" /> : null}</span>
                   </button>
                 );
